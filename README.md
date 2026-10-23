@@ -35,3 +35,7 @@ Settings such as ports and the videos folder are in `config.json`.
 | `Setup guide.html` | Operator setup guide |
 
 Fonts: Manrope, under the SIL Open Font License (`public/fonts/Manrope-OFL.txt`).
+
+## Credits
+
+Created by [blockie82](https://github.com/blockie82) for Full Circle Immersive, built with Claude.
