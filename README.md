@@ -2,6 +2,14 @@
 
 *By Full Circle Immersive.*
 
+![The Full Circle Director control panel: a 360° video preview with eight headsets' views marked on it, a point marked for everyone to face, the headset list and a view through one headset's eyes](docs/screenshot-panel.jpg)
+
+*The control panel during a session. Each coloured box is what one headset's wearer can see; the white crosshair marks a point everyone can be turned to face.*
+
+![All eight headsets' views side by side in a grid](docs/screenshot-grid.jpg)
+
+*View all headsets: what every wearer is looking at, side by side.*
+
 Synced 360°, 180° and 3D video playback across Meta Quest headsets, controlled from one Windows PC on a local network.
 
 - **Server** (`server.js`): serves the headset app over HTTPS with its own certificate, holds the shared playback state, and keeps every headset's clock in step.
