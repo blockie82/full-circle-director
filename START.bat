@@ -1,5 +1,5 @@
 @echo off
-title Full Circle Immersive server
+title Full Circle Director server
 cd /d "%~dp0"
 where node >nul 2>nul
 if errorlevel 1 (

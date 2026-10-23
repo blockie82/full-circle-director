@@ -1,4 +1,6 @@
-# Full Circle Immersive
+# Full Circle Director
+
+*By Full Circle Immersive.*
 
 Synced 360°, 180° and 3D video playback across Meta Quest headsets, controlled from one Windows PC on a local network.
 

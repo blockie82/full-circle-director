@@ -1,4 +1,4 @@
-/* Full Circle Immersive – control panel */
+/* Full Circle Director (Full Circle Immersive) – control panel */
 (() => {
   'use strict';
   const $ = id => document.getElementById(id);

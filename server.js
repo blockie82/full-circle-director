@@ -1,6 +1,6 @@
 'use strict';
 /*
- * Full Circle Immersive – local playback server
+ * Full Circle Director (Full Circle Immersive) – local playback server
  *
  *  - Headsets join at  https://<this-PC's-IP>:8443   (self-signed certificate, accept once per headset)
  *  - The control panel runs at  http://localhost:8080  (this PC only)
@@ -47,7 +47,7 @@ function certificate() {
   }
   const selfsigned = require('selfsigned');
   const all = Array.from(new Set([...(covered || []), ...ips]));
-  const pems = selfsigned.generate([{ name: 'commonName', value: 'Full Circle Immersive local server' }], {
+  const pems = selfsigned.generate([{ name: 'commonName', value: 'Full Circle Director local server' }], {
     days: 3650, keySize: 2048, algorithm: 'sha256',
     extensions: [
       { name: 'basicConstraints', cA: false },
@@ -345,8 +345,8 @@ panelServer.listen(cfg.panelPort, '127.0.0.1', () => {
   headsetServer.listen(cfg.headsetPort, '0.0.0.0', () => {
     const ips = lanIPs();
     console.log('');
-    console.log('  Full Circle Immersive server is running');
-    console.log('  ---------------------------------------');
+    console.log('  Full Circle Director is running');
+    console.log('  -------------------------------');
     console.log(`  Control panel (this PC):  http://localhost:${cfg.panelPort}`);
     console.log('  Headsets open:            ' + (ips.length ? ips.map(ip => `https://${ip}:${cfg.headsetPort}`).join('\n                            ') : '(no network found – connect this PC to Wi-Fi or Ethernet)'));
     console.log(`  Videos folder:            ${VIDEOS}`);

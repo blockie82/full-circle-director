@@ -1,8 +1,8 @@
 {
-  "name": "full-circle-immersive-server",
+  "name": "full-circle-director",
   "version": "1.0.0",
   "private": true,
-  "description": "Full Circle Immersive: synced 360/3D video playback across Quest headsets on a local network.",
+  "description": "Full Circle Director by Full Circle Immersive: synced 360/3D video playback across Quest headsets on a local network.",
   "main": "server.js",
   "scripts": { "start": "node server.js" },
   "dependencies": {

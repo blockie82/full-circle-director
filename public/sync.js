@@ -1,4 +1,4 @@
-/* Full Circle Immersive – connection and clock sync shared by the panel and headsets.
+/* Full Circle Director – connection and clock sync shared by the panel and headsets.
  * Keeps a WebSocket open to the server (reconnecting if it drops) and estimates the
  * offset between this device's clock and the server's from the fastest ping round trips. */
 (function () {
