@@ -6,7 +6,7 @@ Synced 360°, 180° and 3D video playback across Meta Quest headsets, controlled
 
 - **Server** (`server.js`): serves the headset app over HTTPS with its own certificate, holds the shared playback state, and keeps every headset's clock in step.
 - **Control panel** (`public/panel.html`, opens at `http://localhost:8080` on the PC): play, pause, stop and seek for everyone; a live preview showing where each wearer is looking; "through their eyes" views, singly or as a grid; turning everyone to face a chosen point; the video library.
-- **Headset app** (`public/headset.html`, opens at `https://<PC address>:8443` in the Quest browser): stores videos on the headset, plays them in VR through the headset's compositor layer for smooth 8K, and follows the operator's playback in sync.
+- **Full Circle Player**, the headset app (`public/headset.html`, opens at `https://<PC address>:8443` in the Quest browser): stores videos on the headset, plays them in VR through the headset's compositor layer for smooth 8K, and follows the operator's playback in sync.
 
 ## Running it
 

@@ -1,4 +1,4 @@
-/* Full Circle Director (Full Circle Immersive) – headset app.
+/* Full Circle Player (Full Circle Immersive) – the headset app for Full Circle Director.
  * Connects to the PC server, keeps videos in this headset's storage, follows the
  * operator's playback in sync, and reports where the wearer is looking. */
 (() => {
