@@ -1,0 +1,82 @@
+/* Full Circle Immersive – shared brand tokens and controls.
+   Single dark look by choice: both screens sit beside or inside video. */
+@font-face {
+  font-family: "Manrope"; font-style: normal; font-weight: 200 800; font-display: swap;
+  src: url(/fonts/manrope.woff2) format("woff2");
+}
+:root {
+  --fc-violet: #7400b8;
+  --fc-indigo: #5e60ce;
+  --fc-blue: #5390d9;
+  --fc-cyan: #48bfe3;
+  --fc-teal: #64dfdf;
+  --fc-mint: #80ffdb;
+  --spectrum: linear-gradient(90deg, #7400b8, #6930c3, #5e60ce, #5390d9, #4ea8de, #48bfe3, #56cfe1, #64dfdf, #72efdd, #80ffdb);
+  --void: #0a0718;
+  --surface: #120d29;
+  --raised: #1a1438;
+  --rule: #2e2758;
+  --ink: #eef0ff;
+  --dim: #a19dc9;
+  --faint: #6f6a9c;
+  --red: #ff6b8b;
+  --amber: #ffc46b;
+  --green: #80ffdb;
+  --font: "Manrope", "Segoe UI", system-ui, sans-serif;
+  color-scheme: dark;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  color: var(--ink); font-family: var(--font); font-size: 14px; line-height: 1.45;
+  background: radial-gradient(120% 90% at 10% 0%, rgba(116, 0, 184, 0.28), transparent 60%),
+              radial-gradient(110% 80% at 100% 100%, rgba(72, 191, 227, 0.16), transparent 60%), var(--void);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+}
+[hidden] { display: none !important; }
+.num { font-variant-numeric: tabular-nums; }
+
+button {
+  font: 700 13px var(--font); letter-spacing: 0.01em; white-space: nowrap;
+  padding: 8px 15px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--fc-teal); background: transparent; color: var(--fc-mint);
+  transition: background-color 0.15s, border-color 0.15s;
+}
+button:hover:not(:disabled) { background: rgba(100, 223, 223, 0.1); }
+button.primary { background: linear-gradient(90deg, var(--fc-blue), var(--fc-mint)); border-color: transparent; color: var(--void); }
+button.primary:hover:not(:disabled) { filter: brightness(1.08); background: linear-gradient(90deg, var(--fc-blue), var(--fc-mint)); }
+button.quiet { border-color: var(--rule); color: var(--dim); }
+button.danger { border-color: rgba(255, 107, 139, 0.5); color: var(--red); }
+button:disabled { opacity: 0.35; cursor: not-allowed; }
+:focus-visible { outline: 2px solid var(--fc-mint); outline-offset: 2px; }
+
+select, input[type=text], input[type=file] {
+  font: 500 14px var(--font); color: var(--ink); background: var(--raised);
+  border: 1px solid var(--rule); border-radius: 6px; padding: 6px 9px; min-width: 0;
+}
+input[type=file]::file-selector-button {
+  font: 700 12px var(--font); background: var(--spectrum); color: var(--void);
+  border: 0; border-radius: 999px; padding: 4px 10px; margin-right: 8px; cursor: pointer;
+}
+input[type=range] { accent-color: var(--fc-teal); }
+label.field { display: grid; gap: 4px; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); min-width: 0; }
+
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px; border-radius: 999px;
+  font-size: 12px; font-weight: 600; white-space: nowrap; border: 1px solid var(--rule); color: var(--dim);
+}
+.chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.chip.ok { color: var(--green); border-color: rgba(128, 255, 219, 0.35); }
+.chip.warn { color: var(--amber); border-color: rgba(255, 196, 107, 0.35); }
+.chip.bad { color: var(--red); border-color: rgba(255, 107, 139, 0.35); }
+.chip.live { color: var(--void); background: var(--spectrum); border-color: transparent; }
+.chip.live::before { background: var(--void); }
+
+.bar { height: 4px; border-radius: 2px; background: var(--rule); overflow: hidden; }
+.bar > i { display: block; height: 100%; background: var(--spectrum); width: 0; }
+
+.brandmark { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: -0.01em; }
+.brandmark img { width: 28px; height: 28px; }
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

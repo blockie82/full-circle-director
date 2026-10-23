@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Full Circle Immersive Headset</title>
+<link rel="icon" href="/logo.svg">
+<link rel="stylesheet" href="/brand.css">
+<style>
+/* Layout: one centred card on the brand background; the headset wearer sees this before entering VR. */
+body { display: grid; place-items: center; min-height: 100%; padding: 24px 16px; overflow-y: auto; }
+.card {
+  position: relative; width: min(640px, 100%); background: rgba(18, 13, 41, 0.92);
+  border: 1px solid var(--rule); border-radius: 14px; padding: 26px 26px 22px; display: grid; gap: 18px;
+  overflow: hidden;
+}
+.card::before { content: ""; position: absolute; inset: 0 0 auto; height: 3px; background: var(--spectrum); }
+.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.brandmark { font-size: 18px; }
+.who { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: center; }
+.swatch { width: 16px; height: 16px; border-radius: 50%; background: var(--fc-mint); }
+#name { font-size: 22px; font-weight: 700; background: transparent; border-color: transparent; padding: 4px 6px; width: 100%; }
+#name:hover, #name:focus { border-color: var(--rule); background: var(--raised); }
+.now { display: grid; gap: 6px; padding: 16px; border-radius: 10px; background: var(--raised); }
+.now .k { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); }
+.now .v { font-size: 20px; font-weight: 700; overflow-wrap: anywhere; }
+.now .sub { color: var(--dim); display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+#vrBtn { font-size: 18px; padding: 14px 22px; width: 100%; }
+.hint { margin: 0; color: var(--dim); text-align: center; min-height: 1.4em; }
+.hint.bad { color: var(--red); }
+h2 { margin: 0; font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); }
+.files { display: grid; gap: 8px; }
+.file { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--rule); border-radius: 8px; }
+.file .n { font-weight: 600; overflow-wrap: anywhere; }
+.file .m { color: var(--dim); font-size: 12px; }
+.file .bar { grid-column: 1 / -1; }
+.empty { color: var(--dim); margin: 0; }
+details summary { cursor: pointer; color: var(--dim); font-weight: 600; }
+.settings { display: grid; gap: 12px; margin-top: 12px; }
+.foot { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; color: var(--faint); font-size: 12px; }
+#srcVideo { position: fixed; top: 0; left: 0; width: 4px; height: 4px; opacity: 0.01; pointer-events: none; }
+#view { position: fixed; inset: 0; z-index: -1; opacity: 0; pointer-events: none; }
+</style>
+</head>
+<body>
+<main class="card">
+  <div class="top">
+    <div class="brandmark"><img src="/logo.svg" alt="">Full Circle Immersive</div>
+    <span class="chip warn" id="conn">Connecting…</span>
+  </div>
+
+  <div class="who">
+    <span class="swatch" id="swatch"></span>
+    <input type="text" id="name" aria-label="Headset name" maxlength="40" value="This headset">
+  </div>
+
+  <section class="now" aria-live="polite">
+    <span class="k">Now loaded</span>
+    <span class="v" id="nowName">Waiting for the operator</span>
+    <span class="sub"><span id="nowFormat"></span><span class="chip" id="nowReady" hidden></span></span>
+  </section>
+
+  <button id="vrBtn" class="primary" type="button" disabled>Enter VR</button>
+  <p class="hint" id="hint">Checking VR support…</p>
+
+  <section class="files">
+    <h2>Videos on this headset</h2>
+    <div id="fileList" class="files"><p class="empty">No videos in the library yet.</p></div>
+    <div class="foot"><span id="storage"></span><span id="clock"></span></div>
+  </section>
+
+  <details>
+    <summary>Settings</summary>
+    <div class="settings">
+      <label class="field" for="engine">Renderer
+        <select id="engine">
+          <option value="layer">Media layer (best for 8K)</option>
+          <option value="webgl">WebGL (works everywhere)</option>
+        </select>
+      </label>
+      <label class="field" for="localFile">Play a file already on this headset
+        <input type="file" id="localFile" accept="video/*,.mp4,.mkv,.webm,.mov">
+      </label>
+      <p class="empty">Pick a file with the same name as a library video to use it instead of downloading. This lasts until the page is reloaded.</p>
+    </div>
+  </details>
+</main>
+
+<div id="view"></div>
+
+<script src="/lib/three.min.js"></script>
+<script src="/sync.js"></script>
+<script src="/headset.js"></script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+{
+  "headsetPort": 8443,
+  "panelPort": 8080,
+  "videosDir": "videos",
+  "startLeadMs": 1200
+}

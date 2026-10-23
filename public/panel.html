@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Full Circle Immersive Control</title>
+<link rel="icon" href="/logo.svg">
+<link rel="stylesheet" href="/brand.css">
+<style>
+/* Layout: header strip; main column = stage preview + transport + library; side column = headsets + "through their eyes" view + room settings. */
+body { overflow-y: auto; }
+.wrap { max-width: 1500px; margin: 0 auto; padding-block: 0 32px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+header.top {
+  position: sticky; top: 0; z-index: 10; background: rgba(10, 7, 24, 0.86); backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--rule); margin-bottom: 18px;
+}
+header.top::after { content: ""; position: absolute; inset: auto 0 -1px 0; height: 2px; background: var(--spectrum); opacity: 0.7; }
+.topin { max-width: 1500px; margin: 0 auto; padding-block: 12px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.brandmark { font-size: 17px; }
+.brandmark small { font-weight: 500; color: var(--dim); font-size: 14px; margin-left: 2px; }
+.join { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--dim); }
+.join code { font: 600 14px var(--font); color: var(--fc-mint); background: var(--raised); border: 1px solid var(--rule); border-radius: 6px; padding: 4px 9px; user-select: all; }
+.grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 18px; align-items: start; }
+@media (max-width: 1080px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+.col { display: grid; gap: 18px; min-width: 0; }
+.panel { background: rgba(18, 13, 41, 0.9); border: 1px solid var(--rule); border-radius: 12px; padding: 16px; display: grid; gap: 14px; min-width: 0; }
+.ph { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+h2 { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); }
+.muted { color: var(--dim); }
+.small { font-size: 12px; }
+
+/* stage */
+.nowline { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.nowline strong { font-size: 20px; font-weight: 700; overflow-wrap: anywhere; }
+.stage { position: relative; width: min(100%, 104vh); margin-inline: auto; aspect-ratio: 2 / 1; max-width: 100%; border-radius: 8px; overflow: hidden; background: #05030d; border: 1px solid var(--rule); }
+.stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.stage .empty { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 10px; text-align: center; color: var(--dim); padding: 16px; }
+.stage .empty img { width: 64px; height: 64px; opacity: 0.9; }
+.stagebar { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; color: var(--dim); font-size: 13px; }
+.stagebar label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+.stage.pickable canvas { cursor: crosshair; }
+.targetbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; padding: 10px 12px; border-radius: 10px; background: var(--raised); }
+.targetbar .what { margin-right: auto; font-weight: 600; }
+
+/* all headsets wall */
+.wall { position: fixed; inset: 0; z-index: 30; background: var(--void); display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.wallbar { position: relative; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; border-bottom: 1px solid var(--rule); padding-block: calc(12px + env(safe-area-inset-top, 0px)) 12px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.wallbar::after { content: ""; position: absolute; inset: auto 0 -1px 0; height: 2px; background: var(--spectrum); opacity: 0.7; }
+.wallbar .grow { margin-left: auto; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.wallbar .mini { width: 40px; height: 40px; border-radius: 50%; padding: 0; display: grid; place-items: center; }
+.wallbar .mini svg { width: 18px; height: 18px; fill: var(--void); }
+.wallgrid { position: relative; margin: 12px max(16px, env(safe-area-inset-right, 0px)) calc(16px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); min-height: 0; }
+.wallgrid canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.tile { position: absolute; border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; cursor: pointer; }
+.tile.sel { border-color: var(--fc-teal); box-shadow: 0 0 0 1px var(--fc-teal); }
+.tile .lbl { position: absolute; left: 8px; top: 8px; display: flex; gap: 8px; align-items: center; background: rgba(10,7,24,0.8); border-radius: 999px; padding: 3px 10px 3px 8px; font-weight: 700; font-size: 13px; max-width: calc(100% - 16px); }
+.tile .lbl i { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.tile .lbl span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tile .st { position: absolute; right: 8px; bottom: 8px; font-size: 12px; color: var(--dim); background: rgba(10,7,24,0.8); border-radius: 999px; padding: 2px 9px; }
+.tile .msg { position: absolute; inset: 0; display: grid; place-content: center; color: var(--dim); text-align: center; padding: 12px; }
+.tile .cross { position: absolute; left: 50%; top: 50%; width: 14px; height: 14px; margin: -7px; border: 2px solid rgba(255,255,255,0.6); border-radius: 50%; }
+.wallempty { position: absolute; inset: 0; display: grid; place-content: center; color: var(--dim); }
+
+/* transport */
+.transport { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px 18px; align-items: center; }
+.big { width: 64px; height: 64px; border-radius: 50%; padding: 0; display: grid; place-items: center; grid-row: span 2; }
+.big svg { width: 26px; height: 26px; fill: var(--void); }
+.seekrow { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.seekrow input { flex: 1; min-width: 0; }
+.time { font-weight: 600; color: var(--ink); white-space: nowrap; }
+.btnrow { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+#playState { margin-left: auto; }
+
+/* library */
+.lib { display: grid; gap: 6px; align-content: start; max-height: 60vh; }
+.vid { border: 1px solid var(--rule); border-radius: 10px; min-width: 0; }
+.vid.current { background: linear-gradient(var(--surface), var(--surface)) padding-box, var(--spectrum) border-box; border-color: transparent; }
+.vhead { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 6px 8px 6px 4px; }
+.vtog { display: flex; align-items: center; gap: 10px; min-width: 0; width: 100%; padding: 4px 8px; border: 0; border-radius: 8px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; letter-spacing: 0; }
+.vtog:hover:not(:disabled) { background: rgba(161, 157, 201, 0.08); }
+.vtog .ar { flex: none; width: 0; height: 0; border-left: 6px solid var(--dim); border-top: 5px solid transparent; border-bottom: 5px solid transparent; transition: transform 0.15s; }
+.vid.open .vtog .ar { transform: rotate(90deg); }
+.vtog .txt { display: grid; min-width: 0; }
+.vid .n { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vid .m { color: var(--dim); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vhead .acts { display: flex; gap: 8px; align-items: center; }
+.vbody { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; padding: 2px 12px 12px 30px; }
+.vbody select { font-size: 13px; padding: 4px 6px; flex: 0 1 170px; }
+.vbody .sp { flex: 1 1 0; }
+
+/* folding panels */
+.foldhead { display: flex; align-items: center; gap: 10px; width: 100%; padding: 0; border: 0; border-radius: 8px; background: none; color: inherit; font: inherit; text-align: left; letter-spacing: 0; cursor: pointer; min-width: 0; }
+.foldhead:hover:not(:disabled) { background: none; }
+.foldhead .sumline { color: var(--dim); font-size: 13px; font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; }
+.foldhead .chev { margin-left: auto; flex: none; width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--rule); display: grid; place-items: center; transition: transform 0.2s, border-color 0.15s; }
+.foldhead .chev::before { content: ""; width: 7px; height: 7px; border-right: 2px solid var(--dim); border-bottom: 2px solid var(--dim); transform: translateY(-2px) rotate(45deg); }
+.fold.open .foldhead .chev { transform: rotate(180deg); }
+.foldhead:hover .chev { border-color: var(--fc-teal); }
+.fold { gap: 0; }
+.foldbody { display: grid; gap: 12px; margin-top: 14px; min-width: 0; }
+
+/* On a desktop screen everything fits in the window; long lists scroll inside their own boxes */
+@media (min-width: 1081px) {
+  body { height: 100%; overflow: hidden; display: flex; flex-direction: column; }
+  header.top { flex: none; margin-bottom: 0; }
+  .wrap { flex: 1 1 auto; min-height: 0; width: 100%; padding-block: 16px; }
+  .grid { height: 100%; }
+  .col { height: 100%; min-height: 0; display: flex; flex-direction: column; gap: 16px; }
+  .col > * { flex: none; }
+  .stage { width: min(100%, calc((100vh - 420px) * 2)); }
+  body.lib-open .stage { width: min(100%, calc((100vh - 600px) * 2)); min-width: min(100%, 560px); }
+  .fold.open.grow { flex: 1 1 auto; min-height: 150px; display: flex; flex-direction: column; }
+  .fold.open.grow > .foldbody { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  .fold.open.grow .scroll { flex: 1 1 auto; min-height: 0; max-height: none; overflow-y: auto; }
+}
+.scroll { overflow-y: auto; padding-right: 4px; scrollbar-width: thin; scrollbar-color: var(--rule) transparent; }
+.empty-lib { color: var(--dim); margin: 0; line-height: 1.6; }
+.empty-lib code { color: var(--ink); overflow-wrap: anywhere; }
+
+/* headsets */
+.hs { display: grid; gap: 8px; align-content: start; max-height: 60vh; }
+.h { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 10px; align-items: center; padding: 11px 12px; border: 1px solid var(--rule); border-radius: 10px; cursor: pointer; }
+.h:hover { border-color: #463d7e; }
+.h.sel { border-color: var(--fc-teal); background: rgba(100, 223, 223, 0.06); }
+.h.off { opacity: 0.55; }
+.h .sw { width: 12px; height: 12px; border-radius: 50%; }
+.h .nm { font-weight: 700; overflow-wrap: anywhere; }
+.h .meta { grid-column: 2 / -1; color: var(--dim); font-size: 12px; display: flex; gap: 4px 12px; flex-wrap: wrap; }
+.h .meta .bad { color: var(--red); } .h .meta .warn { color: var(--amber); } .h .meta .ok { color: var(--green); }
+.h .bar { grid-column: 2 / -1; }
+.h .tools { grid-column: 2 / -1; display: flex; gap: 6px; flex-wrap: wrap; }
+.h .tools button { padding: 4px 10px; font-size: 12px; }
+.h input { font-weight: 700; padding: 2px 6px; width: 100%; }
+
+/* focus view */
+.eyes { position: relative; width: 100%; aspect-ratio: 16 / 10; max-width: 100%; border-radius: 8px; overflow: hidden; background: #05030d; border: 1px solid var(--rule); }
+.eyes canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.eyes .cross { position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px; border: 2px solid rgba(255,255,255,0.7); border-radius: 50%; pointer-events: none; }
+.eyes .msg { position: absolute; inset: 0; display: grid; place-content: center; color: var(--dim); text-align: center; padding: 16px; }
+
+.setting { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; align-items: center; }
+.setting input[type=range] { grid-column: 1 / -1; width: 100%; }
+.toggle { display: flex; gap: 8px; align-items: center; cursor: pointer; }
+.toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--raised); border: 1px solid var(--rule); border-radius: 999px; padding: 8px 16px; z-index: 20; }
+#pv { position: fixed; left: 0; top: 0; width: 4px; height: 4px; opacity: 0.01; pointer-events: none; }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="topin">
+    <div class="brandmark"><img src="/logo.svg" alt="">Full Circle Immersive <small>Control</small></div>
+    <span class="chip warn" id="conn">Connecting…</span>
+    <div class="join"><span>Headsets open</span><code id="joinUrl">…</code><button type="button" class="quiet" id="copyUrl">Copy</button></div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="grid">
+    <div class="col">
+      <section class="panel" aria-label="Now playing">
+        <div class="ph">
+          <div class="nowline"><strong id="nowName">No video loaded</strong><span class="muted" id="nowFmt"></span></div>
+          <span class="chip" id="readyChip" hidden></span>
+        </div>
+        <div class="stage" id="stage">
+          <canvas id="stageCanvas"></canvas>
+          <div class="empty" id="stageEmpty"><img src="/logo.svg" alt=""><span>Load a video from the library below. Each headset's view will appear here as a coloured marker.</span></div>
+        </div>
+        <div class="stagebar">
+          <label for="showFov"><input type="checkbox" id="showFov" checked> Show each headset's field of view</label>
+          <label for="showNames"><input type="checkbox" id="showNames" checked> Show names</label>
+          <span id="pickHint">Click the preview to mark a point you want everyone to face.</span>
+          <span id="previewNote"></span>
+        </div>
+        <div class="targetbar" id="targetBar" hidden>
+          <span class="what" id="targetWhat">Point marked</span>
+          <button type="button" class="primary" id="turnBtn">Turn everyone to this point</button>
+          <button type="button" class="quiet" id="clearTarget">Clear point</button>
+        </div>
+        <div class="transport">
+          <button type="button" class="primary big" id="playBtn" aria-label="Play" disabled>
+            <svg viewBox="0 0 24 24" id="playIcon"><path d="M7 4.5v15l13-7.5z"/></svg>
+          </button>
+          <div class="seekrow">
+            <span class="time num" id="tNow">0:00</span>
+            <input type="range" id="seek" min="0" max="1000" value="0" step="1" aria-label="Seek" disabled>
+            <span class="time num muted" id="tDur">0:00</span>
+          </div>
+          <div class="btnrow">
+            <button type="button" class="quiet" id="stopBtn" disabled>Stop</button>
+            <button type="button" class="quiet" id="backBtn" disabled>−10 s</button>
+            <button type="button" class="quiet" id="fwdBtn" disabled>+10 s</button>
+            <button type="button" class="quiet" id="recenterBtn" title="Turns everyone to face the centre of the video">Recentre everyone</button>
+            <span class="chip" id="playState">Stopped</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel fold open grow" id="libFold">
+        <button type="button" class="foldhead" aria-expanded="true" aria-controls="libFoldBody"><h2>Library</h2><span class="sumline num" id="libSum"></span><span class="chev" aria-hidden="true"></span></button>
+        <div class="foldbody" id="libFoldBody">
+          <div class="btnrow">
+            <label class="toggle small muted" for="streamOk"><input type="checkbox" id="streamOk"> Stream to headsets that don't have the video</label>
+            <button type="button" class="quiet" id="cancelAll">Cancel all downloads</button>
+          </div>
+          <div class="lib scroll" id="lib"></div>
+        
+        </div>
+      </section>
+    </div>
+
+    <div class="col">
+      <section class="panel fold open grow" id="hsFold">
+        <button type="button" class="foldhead" aria-expanded="true" aria-controls="hsFoldBody"><h2>Headsets</h2><span class="sumline num" id="hsCount"></span><span class="chev" aria-hidden="true"></span></button>
+        <div class="foldbody" id="hsFoldBody">
+          <div class="hs scroll" id="hs"><p class="empty-lib">No headsets yet. On each Quest, open the address at the top of this page in the browser.</p></div>
+        
+        </div>
+      </section>
+
+      <section class="panel" aria-label="Through their eyes">
+        <div class="ph"><h2 id="eyesTitle">Through their eyes</h2><div class="btnrow"><button type="button" class="quiet" id="eyesNext">Next headset</button><button type="button" id="wallBtn">View all headsets</button></div></div>
+        <div class="eyes" id="eyesBox"><canvas id="eyesCanvas"></canvas><span class="cross"></span><div class="msg" id="eyesMsg">Select a headset to see roughly what its wearer sees.</div></div>
+      </section>
+
+      <section class="panel fold " id="flatFold">
+        <button type="button" class="foldhead" aria-expanded="false" aria-controls="flatFoldBody"><h2>Flat-screen videos</h2><span class="sumline num" id="flatSum">12 m away, 12 m wide</span><span class="chev" aria-hidden="true"></span></button>
+        <div class="foldbody" id="flatFoldBody" hidden>
+          <div class="setting"><span>Screen distance</span><span class="num" id="distVal">12 m</span><input type="range" id="dist" min="2" max="30" step="0.5" value="12" aria-label="Screen distance"></div>
+          <div class="setting"><span>Screen width</span><span class="num" id="sizeVal">12 m</span><input type="range" id="size" min="2" max="40" step="0.5" value="12" aria-label="Screen width"></div>
+        
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<section class="wall" id="wall" hidden aria-label="All headsets">
+  <div class="wallbar">
+    <div class="brandmark"><img src="/logo.svg" alt="">All headsets</div>
+    <span class="muted small" id="wallCount"></span>
+    <div class="grow">
+      <button type="button" class="primary mini" id="wallPlay" aria-label="Play"><svg viewBox="0 0 24 24" id="wallIcon"><path d="M7 4.5v15l13-7.5z"/></svg></button>
+      <span class="time num" id="wallTime">0:00</span>
+      <button type="button" class="quiet" id="wallRecenter">Recentre everyone</button>
+      <button type="button" class="quiet" id="wallClose">Close</button>
+    </div>
+  </div>
+  <div class="wallgrid" id="wallGrid"><div class="wallempty" id="wallEmpty" hidden>No headsets are connected.</div></div>
+</section>
+
+<div class="toast" id="toast" hidden></div>
+<video id="pv" muted playsinline preload="auto"></video>
+
+<script src="/lib/three.min.js"></script>
+<script src="/sync.js"></script>
+<script src="/panel.js"></script>
+</body>
+</html>

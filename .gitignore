@@ -1,0 +1,17 @@
+# Installed by START.bat on first run
+node_modules/
+
+# Created on each PC – never commit these
+cert/
+library.json
+headsets.json
+
+# Video files stay on the PC, not in the repository
+videos/*
+!videos/README.txt
+
+# Windows / editor clutter
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
