@@ -46,7 +46,7 @@
         c.getContext('2d').drawImage(image, 0, 0, c.width, c.height); imgSource = c;
       } else imgSource = image;
       imgTex.image = imgSource; imgTex.needsUpdate = true;
-      imageReady = true; imageLayerDirty = true;
+      imageReady = true;
       rebuildView(true); updateUI(); sendStatus();
     } catch (e) {
       if (token === sourceToken) setHint('This headset couldn\'t open the image.', true);
@@ -220,7 +220,8 @@
     }
     rebuildView(); updateUI();
   }
-  video.addEventListener('loadedmetadata', () => { rebuildView(true); syncTick(true); updateUI(); });
+  video.addEventListener('loadedmetadata', () => { rebuildView(true); updateMediaLayer(); syncTick(true); updateUI(); });
+  video.addEventListener('loadeddata', () => updateMediaLayer());
   video.addEventListener('error', () => {
     if (!current.url || isImageItem(itemNow())) return;
     setHint('This headset couldn\'t play the video (' + ((video.error && video.error.code === 4) ? 'format not supported' : 'decode error') + ').', true);
@@ -280,7 +281,10 @@
   const wtex = new THREE.CanvasTexture(wc);
   const waitPanel = new THREE.Mesh(new THREE.PlaneGeometry(2, 0.5), new THREE.MeshBasicMaterial({ map: wtex, transparent: true }));
   waitPanel.position.set(0, 0, -3); scene.add(waitPanel);
+  let waitText = '';
   function drawWait(text) {
+    if (text === waitText) return;
+    waitText = text;
     const x = wc.getContext('2d'); x.clearRect(0, 0, 1024, 256);
     const g = x.createLinearGradient(0, 0, 1024, 0); g.addColorStop(0, '#7400b8'); g.addColorStop(0.5, '#5390d9'); g.addColorStop(1, '#80ffdb');
     x.fillStyle = 'rgba(18,13,41,0.92)'; x.fillRect(0, 0, 1024, 256); x.fillStyle = g; x.fillRect(0, 0, 1024, 8);
@@ -342,94 +346,113 @@
     updateMediaTransform();
   }
 
-  // ------------------------------------------------------------ media layer (headset compositor draws the video)
-  let session = null, layerSession = null, mediaBinding = null, mediaSpace = null, mediaLayer = null, mediaSig = '';
+  // ------------------------------------------------------------ media layer (headset compositor draws the picture)
+  // The compositor shows exactly one layer: the video, a still image, or a "waiting" panel.
+  // A new layer is only made once its content is ready, and a failed attempt is retried,
+  // so the headset never stays stuck on an old picture.
+  let session = null, layerSession = null, mediaBinding = null, mediaSpace = null, mediaLayer = null, mediaSig = '', layerKind = null;
+  let glBinding = null, staticDirty = false, staticGL = null;
   const yawQuat = a => ({ x: 0, y: Math.sin(a / 2), z: 0, w: Math.cos(a / 2) });
+  const WAIT_W = 2, WAIT_H = 0.5, WAIT_DIST = 3;
   function updateMediaTransform() {
     if (!mediaLayer) return;
     const a = -yawOffset, it = itemNow();
-    if (it && it.shape === 'flat') {
+    const ahead = d => ({ x: Math.sin(yawOffset) * d, y: 0, z: -Math.cos(yawOffset) * d });
+    if (layerKind === 'wait') {
+      mediaLayer.transform = new XRRigidTransform(ahead(WAIT_DIST), yawQuat(a));
+    } else if (it && it.shape === 'flat') {
       const sc = screenCfg();
-      mediaLayer.transform = new XRRigidTransform({ x: Math.sin(yawOffset) * sc.dist, y: 0, z: -Math.cos(yawOffset) * sc.dist }, yawQuat(a));
+      mediaLayer.transform = new XRRigidTransform(ahead(sc.dist), yawQuat(a));
       mediaLayer.width = sc.width; mediaLayer.height = sc.width / eyeAspect(it);
     } else {
       mediaLayer.transform = new XRRigidTransform({ x: 0, y: 0, z: 0 }, yawQuat(a));
     }
   }
+  function setLayer(layer, kind) {
+    const old = mediaLayer;
+    mediaLayer = layer; layerKind = kind;
+    staticDirty = kind !== 'video';
+    updateMediaTransform();
+    layerSession.updateRenderState({ layers: [layer] });
+    if (old && old !== layer && old.destroy) try { old.destroy(); } catch {}
+  }
   function updateMediaLayer() {
     if (!layerSession) return;
     const it = itemNow();
-    const sig = it ? [it.id, it.shape, it.layout, current.kind, imageReady].join('|') : '';
+    const want = !it ? 'wait'
+      : isImageItem(it) ? (imageReady ? 'image' : 'wait')
+      : (video.readyState >= 1 && video.videoWidth ? 'video' : 'wait');   // wait until the video has opened
+    const sig = want === 'wait' ? 'wait|' + waitText : [want, it.id, it.shape, it.layout, current.kind].join('|');
     if (sig === mediaSig) return;
-    mediaSig = sig;
-    if (!it) return; // keep showing the last picture rather than a black void
-    const layout = { mono: 'mono', tb: 'stereo-top-bottom', sbs: 'stereo-left-right' }[it.layout];
-    const old = mediaLayer;
-    if (isImageItem(it)) {
-      if (!imageReady) { mediaSig = ''; return; }
-      if (!glBinding) { setHint('Images need the WebGL renderer on this headset. Choose it under Settings and enter VR again.', true); return; }
-      // A still picture can't use the video layer, so it is copied once into a static layer the compositor keeps showing
-      const { w, h } = mediaSize();
-      let ew = it.layout === 'sbs' ? w / 2 : w, eh = it.layout === 'tb' ? h / 2 : h;
-      const k = Math.min(1, 8192 / Math.max(ew, eh)); ew = Math.round(ew * k); eh = Math.round(eh * k);
-      try {
+    const layout = it ? { mono: 'mono', tb: 'stereo-top-bottom', sbs: 'stereo-left-right' }[it.layout] : 'mono';
+    try {
+      if (want === 'wait') {
+        if (!glBinding) { if (mediaLayer) { layerSession.updateRenderState({ layers: [] }); mediaLayer = null; layerKind = null; } mediaSig = sig; return; }
+        setLayer(glBinding.createQuadLayer({ space: mediaSpace, layout: 'mono', viewPixelWidth: wc.width, viewPixelHeight: wc.height, isStatic: true, width: WAIT_W, height: WAIT_H }), 'wait');
+      } else if (want === 'image') {
+        if (!glBinding) { setHint('Images need the WebGL renderer on this headset. Choose it under Settings and enter VR again.', true); return; }
+        // A still picture can't use the video layer, so it is copied once into a static layer the compositor keeps showing
+        const { w, h } = mediaSize();
+        let ew = it.layout === 'sbs' ? w / 2 : w, eh = it.layout === 'tb' ? h / 2 : h;
+        const k = Math.min(1, 8192 / Math.max(ew, eh)); ew = Math.round(ew * k); eh = Math.round(eh * k);
         if (it.shape === 'flat') {
           const sc = screenCfg();
-          mediaLayer = glBinding.createQuadLayer({ space: mediaSpace, layout, viewPixelWidth: ew, viewPixelHeight: eh, isStatic: true, width: sc.width, height: sc.width / eyeAspect(it) });
+          setLayer(glBinding.createQuadLayer({ space: mediaSpace, layout, viewPixelWidth: ew, viewPixelHeight: eh, isStatic: true, width: sc.width, height: sc.width / eyeAspect(it) }), 'image');
         } else {
-          mediaLayer = glBinding.createEquirectLayer({
+          setLayer(glBinding.createEquirectLayer({
             space: mediaSpace, layout, viewPixelWidth: ew, viewPixelHeight: eh, isStatic: true,
             centralHorizontalAngle: it.shape === '180' ? Math.PI : Math.PI * 2,
             upperVerticalAngle: Math.PI / 2, lowerVerticalAngle: -Math.PI / 2
-          });
+          }), 'image');
         }
-      } catch (e) { mediaSig = ''; setHint('This headset couldn\'t show the image in VR (' + e.message + '). Try the WebGL renderer under Settings.', true); return; }
-      imageLayerDirty = true;
-      updateMediaTransform();
-      layerSession.updateRenderState({ layers: [mediaLayer] });
-      if (old && old.destroy) try { old.destroy(); } catch {}
-      return;
+      } else {
+        if (it.shape === 'flat') {
+          const sc = screenCfg();
+          setLayer(mediaBinding.createQuadLayer(video, { space: mediaSpace, layout, width: sc.width, height: sc.width / eyeAspect(it) }), 'video');
+        } else {
+          setLayer(mediaBinding.createEquirectLayer(video, {
+            space: mediaSpace, layout,
+            centralHorizontalAngle: it.shape === '180' ? Math.PI : Math.PI * 2,
+            upperVerticalAngle: Math.PI / 2, lowerVerticalAngle: -Math.PI / 2
+          }), 'video');
+        }
+      }
+      mediaSig = sig;     // only remembered once the layer really exists, so a failure is retried
+    } catch (e) {
+      setHint('Couldn\'t switch the picture in VR (' + e.message + '). Retrying…', true);
+      clearTimeout(retryTimer); retryTimer = setTimeout(updateMediaLayer, 500);
     }
-    if (it.shape === 'flat') {
-      const sc = screenCfg();
-      mediaLayer = mediaBinding.createQuadLayer(video, { space: mediaSpace, layout, width: sc.width, height: sc.width / eyeAspect(it) });
-    } else {
-      mediaLayer = mediaBinding.createEquirectLayer(video, {
-        space: mediaSpace, layout,
-        centralHorizontalAngle: it.shape === '180' ? Math.PI : Math.PI * 2,
-        upperVerticalAngle: Math.PI / 2, lowerVerticalAngle: -Math.PI / 2
-      });
-    }
-    updateMediaTransform();
-    layerSession.updateRenderState({ layers: [mediaLayer] });
-    if (old && old.destroy) try { old.destroy(); } catch {}
   }
+  let retryTimer = null;
 
-  // Copy the picture into the static layer, one eye at a time. The layer only needs this
-  // when it is first made, or if the headset says it has lost the contents.
-  let glBinding = null, imageLayerDirty = false, imgGL = null;
-  function drawImageLayer(frame) {
+  // Copy a still picture (an image, or the waiting panel) into the static layer, one eye at a time.
+  // The layer only needs this when it is first made, or if the headset says it has lost the contents.
+  function drawStaticLayer(frame) {
     const gl = renderer.getContext(), it = itemNow();
-    if (!glBinding || !imgSource || !isImageItem(it) || typeof WebGL2RenderingContext === 'undefined' || !(gl instanceof WebGL2RenderingContext)) return;
-    if (!imgGL || imgGL.src !== imgSource) {
-      if (imgGL) { gl.deleteTexture(imgGL.tex); gl.deleteFramebuffer(imgGL.read); gl.deleteFramebuffer(imgGL.draw); }
+    if (!glBinding || typeof WebGL2RenderingContext === 'undefined' || !(gl instanceof WebGL2RenderingContext)) return;
+    const src = layerKind === 'image' ? imgSource : wc;
+    const layout = layerKind === 'image' && it ? it.layout : 'mono';
+    if (!src) return;
+    const version = layerKind === 'image' ? 'img' : 'wait:' + waitText;
+    if (!staticGL || staticGL.src !== src || staticGL.version !== version) {
+      if (staticGL) { gl.deleteTexture(staticGL.tex); gl.deleteFramebuffer(staticGL.read); gl.deleteFramebuffer(staticGL.draw); }
       const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
       gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true); gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, imgSource);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src);
       gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
       const read = gl.createFramebuffer();
       gl.bindFramebuffer(gl.READ_FRAMEBUFFER, read);
       gl.framebufferTexture2D(gl.READ_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
-      imgGL = { tex: t, read, draw: gl.createFramebuffer(), src: imgSource, w: imgSource.width, h: imgSource.height };
+      staticGL = { tex: t, read, draw: gl.createFramebuffer(), src, version, w: src.width, h: src.height };
     }
-    const W = imgGL.w, H = imgGL.h;
+    const W = staticGL.w, H = staticGL.h;
     // source rectangles in GL coordinates (the picture was flipped on upload, so its top is at y = H)
-    const eyes = it.layout === 'mono' ? [[null, 0, 0, W, H]]
-      : it.layout === 'sbs' ? [['left', 0, 0, W / 2, H], ['right', W / 2, 0, W, H]]
+    const eyes = layout === 'mono' ? [[null, 0, 0, W, H]]
+      : layout === 'sbs' ? [['left', 0, 0, W / 2, H], ['right', W / 2, 0, W, H]]
       : [['left', 0, H / 2, W, H], ['right', 0, 0, W, H / 2]];   // top half is the left eye
-    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, imgGL.read);
-    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, imgGL.draw);
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, staticGL.read);
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, staticGL.draw);
     for (const [eye, x0, y0, x1, y1] of eyes) {
       const sub = eye ? glBinding.getSubImage(mediaLayer, frame, eye) : glBinding.getSubImage(mediaLayer, frame);
       gl.framebufferTexture2D(gl.DRAW_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, sub.colorTexture, 0);
@@ -438,7 +461,7 @@
     }
     gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null); gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
     if (renderer.resetState) renderer.resetState();
-    imageLayerDirty = false;
+    staticDirty = false;
   }
 
   // ------------------------------------------------------------ head direction
@@ -513,13 +536,14 @@
     if (session) { btn.textContent = 'Exit VR'; btn.disabled = false; }
     else {
       btn.textContent = 'Enter VR';
-      btn.disabled = !vrSupported || ($('engine').value === 'layer' && !current.kind);
+      btn.disabled = !vrSupported;
     }
     let hint = hintText;
     if (!hint) {
       if (!window.isSecureContext) hint = 'Open this page with https:// so VR can start.';
       else if (!vrSupported) hint = vrChecked ? 'VR isn\'t available in this browser.' : 'Checking VR support…';
-      else if (!current.kind && $('engine').value === 'layer') hint = it ? 'Download it below, or ask the operator to send it.' : 'Enter VR becomes available once the operator loads a video or image.';
+      else if (!current.kind && it) hint = 'This isn\'t on the headset yet. Download it below, or ask the operator to send it.';
+      else if (!current.kind) hint = 'Put the headset on and press Enter VR. You\'ll see a waiting screen until the operator loads something.';
       else hint = 'Put the headset on and press Enter VR. The operator controls playback.';
     }
     $('hint').textContent = hint; $('hint').className = 'hint' + (hintBad ? ' bad' : '');
@@ -568,7 +592,8 @@
   } else { vrChecked = true; }
 
   function onSessionEnd() {
-    session = layerSession = mediaLayer = mediaBinding = mediaSpace = glBinding = null; mediaSig = ''; looking = false;
+    session = layerSession = mediaLayer = mediaBinding = mediaSpace = glBinding = layerKind = null; mediaSig = ''; looking = false;
+    clearTimeout(retryTimer);
     updateUI(); sendStatus();
   }
 
@@ -589,8 +614,8 @@
       if (session !== s) return;
       const pose = frame.getViewerPose(mediaSpace);
       if (pose) setLookFromQuat(pose.transform.orientation);
-      if (mediaLayer && isImageItem(itemNow()) && (imageLayerDirty || mediaLayer.needsRedraw)) {
-        try { drawImageLayer(frame); } catch (e) { imageLayerDirty = false; setHint('Couldn\'t draw the image: ' + e.message, true); }
+      if (mediaLayer && layerKind !== 'video' && (staticDirty || mediaLayer.needsRedraw)) {
+        try { drawStaticLayer(frame); } catch (e) { staticDirty = false; setHint('Couldn\'t draw the picture: ' + e.message, true); }
       }
       syncTick(); telemetry();
       s.requestAnimationFrame(onFrame);
