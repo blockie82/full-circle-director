@@ -57,7 +57,7 @@ th { color: var(--dim); font-size: 12px; text-transform: uppercase; letter-spaci
 
   <h2><span>Each session</span>Run a showing</h2>
   <ol>
-    <li>Copy videos and 360° images into the <code>videos</code> folder. They appear in the panel's Library within a second or two. Images can be JPG, PNG or WebP, and use the same naming as videos for 180° and 3D.</li>
+    <li>Add videos and 360° images with <strong>Add files</strong> or <strong>Add folder</strong> in the panel's Library, or drag them onto it. (You can also copy them into the <code>media</code> folder yourself.) Images can be JPG, PNG or WebP, and use the same naming as videos for 180° and 3D.</li>
     <li>Check each video's projection and stereo layout in the Library and correct them if the guess is wrong.</li>
     <li>Click <strong>Send to headsets</strong>. Each headset copies the video into its own storage, so playback never depends on Wi-Fi speed. You only do this once per video.</li>
     <li>Click <strong>Load</strong>. The panel shows "Ready on 8 of 8 headsets" when everyone has it.</li>
@@ -66,11 +66,13 @@ th { color: var(--dim); font-size: 12px; text-transform: uppercase; letter-spaci
   </ol>
   <p>While it plays, each headset's view shows as a coloured marker on the panel's preview. Click a headset in the list to see roughly what its wearer sees. <strong>View all headsets</strong> shows every wearer's view side by side in a grid; press <kbd>Esc</kbd> to close it.</p>
   <p>To point everyone at something, click that spot on the preview, then press <strong>Turn everyone to this point</strong>. Each wearer's view turns left or right so the spot is straight ahead of them; up and down stay level so the horizon doesn't tilt. <strong>Recentre everyone</strong> turns everyone back to the centre of the video, and a wearer can recentre themselves by squeezing the grip button.</p>
-  <p>Keyboard shortcuts in the panel: <kbd>Space</kbd> plays and pauses, <kbd>←</kbd> and <kbd>→</kbd> skip 10 seconds.</p>
+  <p><strong>Showing a series of photos.</strong> Put them in a folder, for example by choosing <strong>Add folder</strong>. The folder appears in the Library as one line that opens to show its contents, with <strong>Send folder to headsets</strong>. Load the first item, then use <strong>Previous</strong> and <strong>Next</strong> beside the play controls to step through. A presentation clicker works too, since its buttons send Page Up and Page Down.</p>
+    <p>Keyboard shortcuts in the panel: <kbd>Space</kbd> plays and pauses, <kbd>←</kbd> and <kbd>→</kbd> skip 10 seconds, <kbd>Page Up</kbd> and <kbd>Page Down</kbd> step through a folder.</p>
 
-  <h2>Video formats</h2>
+  <h2>Files and formats</h2>
   <div class="tw"><table>
     <tr><th>What</th><th>Recommendation</th></tr>
+    <tr><td>Where files live</td><td>The <code>media</code> folder next to <code>START.bat</code>. Files can sit in it directly or one folder down; each folder shows as a group in the Library. Folders inside folders aren't read.</td></tr>
     <tr><td>8K 360°</td><td>MP4, H.265 (HEVC), 30 fps. 8K at 60 fps is at the limit of what a Quest 3 can decode.</td></tr>
     <tr><td>3D</td><td>Top-bottom or side-by-side in one file. Add <code>_TB</code> or <code>_LR</code> to the file name and the panel picks it up.</td></tr>
     <tr><td>180°</td><td>Add <code>_180</code> to the file name.</td></tr>

@@ -35,6 +35,15 @@ h2 { margin: 0; font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-
 .file .m { color: var(--dim); font-size: 12px; }
 .file .bar { grid-column: 1 / -1; }
 .empty { color: var(--dim); margin: 0; }
+.fgroup { border: 1px solid var(--rule); border-radius: 8px; }
+.fgroup > summary { list-style: none; cursor: pointer; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; align-items: center; padding: 10px 12px; }
+.fgroup > summary::-webkit-details-marker { display: none; }
+.fgroup > summary .n { font-weight: 700; overflow-wrap: anywhere; }
+.fgroup > summary .n::before { content: "▸ "; color: var(--dim); }
+.fgroup[open] > summary .n::before { content: "▾ "; }
+.fgroup > summary .m { grid-column: 1; color: var(--dim); font-size: 12px; }
+.fgroup > summary button { grid-row: 1 / span 2; grid-column: 2; }
+.fgroup > .files { padding: 0 10px 10px; }
 details summary { cursor: pointer; color: var(--dim); font-weight: 600; }
 .settings { display: grid; gap: 12px; margin-top: 12px; }
 .foot { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; color: var(--faint); font-size: 12px; }

@@ -23,10 +23,29 @@ const readJSON = (f, d) => { try { return JSON.parse(fs.readFileSync(f, 'utf8'))
 const writeJSON = (f, v) => { try { fs.writeFileSync(f, JSON.stringify(v, null, 2)); } catch (e) { console.error('Could not save', f, e.message); } };
 
 const cfg = Object.assign(
-  { headsetPort: 8443, panelPort: 8080, videosDir: 'videos', startLeadMs: 1200 },
+  { headsetPort: 8443, panelPort: 8080, startLeadMs: 1200 },
   readJSON(path.join(ROOT, 'config.json'), {})
 );
-const VIDEOS = path.resolve(ROOT, cfg.videosDir);
+const MEDIA = path.resolve(ROOT, cfg.mediaDir || cfg.videosDir || 'media');
+// The media folder used to be called "videos". On start, anything in an old "videos" folder
+// is moved into "media" (unzipping an update creates an empty "media" folder alongside it).
+(() => {
+  const legacy = path.join(ROOT, 'videos');
+  if (cfg.videosDir || !fs.existsSync(legacy) || path.resolve(legacy) === MEDIA) return;
+  try {
+    fs.mkdirSync(MEDIA, { recursive: true });
+    let moved = 0;
+    for (const name of fs.readdirSync(legacy)) {
+      if (name.toLowerCase() === 'readme.txt') continue;
+      const to = path.join(MEDIA, name);
+      if (fs.existsSync(to)) { console.warn(`Left "${name}" in the old videos folder because media already has one with that name.`); continue; }
+      fs.renameSync(path.join(legacy, name), to); moved++;
+    }
+    const left = fs.readdirSync(legacy).filter(n => n.toLowerCase() !== 'readme.txt');
+    if (!left.length) fs.rmSync(legacy, { recursive: true, force: true });
+    if (moved) console.log(`Moved ${moved} item${moved === 1 ? '' : 's'} from the old "videos" folder into "${path.basename(MEDIA)}".`);
+  } catch (e) { console.warn('Couldn\'t move the old "videos" folder into "media" (' + e.message + '). Move your files across by hand.'); }
+})();
 const META_FILE = path.join(ROOT, 'library.json');
 const HEADSETS_FILE = path.join(ROOT, 'headsets.json');
 const now = () => performance.timeOrigin + performance.now(); // server clock, ms
@@ -62,10 +81,14 @@ function certificate() {
   return { key: pems.private, cert: pems.cert };
 }
 
-// ---------------------------------------------------------------- video library
+// ---------------------------------------------------------------- media library
+// Files can sit in the media folder itself or one folder down; each such folder is a group in the panel.
 const VIDEO_EXT = ['.mp4', '.m4v', '.webm', '.mkv', '.mov'];
 const IMAGE_EXT = ['.jpg', '.jpeg', '.png', '.webp'];
-let meta = readJSON(META_FILE, {});       // { filename: { shape, layout, duration } }
+const MEDIA_EXT = [...VIDEO_EXT, ...IMAGE_EXT];
+const isMediaName = f => !f.startsWith('.') && MEDIA_EXT.includes(path.extname(f).toLowerCase());
+const naturally = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+let meta = readJSON(META_FILE, {});       // { "file" or "folder/file": { shape, layout, duration } }
 let library = [];
 
 function guessFormat(name) {
@@ -79,27 +102,38 @@ function guessFormat(name) {
 }
 
 function scanLibrary() {
-  fs.mkdirSync(VIDEOS, { recursive: true });
-  library = fs.readdirSync(VIDEOS)
-    .filter(f => [...VIDEO_EXT, ...IMAGE_EXT].includes(path.extname(f).toLowerCase()))
-    .map(f => {
-      const st = fs.statSync(path.join(VIDEOS, f));
-      const m = Object.assign(guessFormat(f), meta[f] || {});
-      const kind = IMAGE_EXT.includes(path.extname(f).toLowerCase()) ? 'image' : 'video';
-      return { id: f, kind, size: st.size, shape: m.shape, layout: m.layout, duration: kind === 'video' ? (m.duration || null) : null };
-    })
-    .sort((a, b) => a.id.localeCompare(b.id));
+  fs.mkdirSync(MEDIA, { recursive: true });
+  const items = [];
+  const add = rel => {
+    try {
+      const st = fs.statSync(path.join(MEDIA, ...rel.split('/')));
+      const name = rel.split('/').pop();
+      const m = Object.assign(guessFormat(name), meta[rel] || {});
+      const kind = IMAGE_EXT.includes(path.extname(name).toLowerCase()) ? 'image' : 'video';
+      items.push({ id: rel, name, folder: rel.includes('/') ? rel.split('/')[0] : null, kind, size: st.size,
+        shape: m.shape, layout: m.layout, duration: kind === 'video' ? (m.duration || null) : null });
+    } catch {}
+  };
+  for (const e of fs.readdirSync(MEDIA, { withFileTypes: true })) {
+    if (e.isFile() && isMediaName(e.name)) add(e.name);
+    else if (e.isDirectory() && !e.name.startsWith('.')) {
+      try {
+        for (const f of fs.readdirSync(path.join(MEDIA, e.name), { withFileTypes: true })) if (f.isFile() && isMediaName(f.name)) add(e.name + '/' + f.name);
+      } catch {}
+    }
+  }
+  library = items.sort((a, b) => naturally(a.folder || '', b.folder || '') || naturally(a.name, b.name));
   return library;
 }
+const rescan = () => { scanLibrary(); broadcast({ t: 'library', items: library }); };
 
 let scanTimer = null;
 function watchVideos() {
   try {
-    fs.watch(VIDEOS, () => {
-      clearTimeout(scanTimer);
-      scanTimer = setTimeout(() => { scanLibrary(); broadcast({ t: 'library', items: library }); }, 800);
-    });
-  } catch (e) { console.warn('Not watching the videos folder for changes:', e.message); }
+    const onChange = () => { clearTimeout(scanTimer); scanTimer = setTimeout(rescan, 800); };
+    try { fs.watch(MEDIA, { recursive: true }, onChange); }
+    catch { fs.watch(MEDIA, onChange); }
+  } catch (e) { console.warn('Not watching the media folder for changes:', e.message); }
 }
 
 // ---------------------------------------------------------------- static files (with byte ranges for video)
@@ -146,18 +180,88 @@ function handler(defaultPage) {
     }
     if (url === '/api/info' && isLocal(req)) {
       res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' });
-      return res.end(JSON.stringify({ addresses: lanIPs().map(ip => `https://${ip}:${cfg.headsetPort}`), videosDir: VIDEOS }));
+      return res.end(JSON.stringify({ addresses: lanIPs().map(ip => `https://${ip}:${cfg.headsetPort}`), mediaDir: MEDIA }));
     }
+    if (url === '/api/upload' && req.method === 'PUT') { if (!isLocal(req)) return deny(res); return upload(req, res); }
+    if (url === '/api/delete' && req.method === 'POST') { if (!isLocal(req)) return deny(res); return remove(req, res); }
     if (url === '/lib/three.min.js') return sendFile(req, res, path.join(ROOT, 'node_modules', 'three', 'build', 'three.min.js'), true);
-    if (url.startsWith('/videos/')) {
-      const name = path.basename(url.slice(8));
-      if (!library.some(v => v.id === name)) { res.writeHead(404); return res.end('Not in the library'); }
-      return sendFile(req, res, path.join(VIDEOS, name));
+    const prefix = url.startsWith('/media/') ? '/media/' : url.startsWith('/videos/') ? '/videos/' : null;
+    if (prefix) {
+      const rel = url.slice(prefix.length);
+      if (!library.some(v => v.id === rel)) { res.writeHead(404); return res.end('Not in the library'); }
+      return sendFile(req, res, path.join(MEDIA, ...rel.split('/')));
     }
     const file = path.normalize(path.join(PUBLIC, url));
     if (!file.startsWith(PUBLIC)) { res.writeHead(403); return res.end(); }
     sendFile(req, res, file);
   };
+}
+
+// ---------------------------------------------------------------- adding and deleting files from the panel
+const deny = res => { res.writeHead(403, { 'Content-Type': 'text/plain' }); res.end('Only the server PC can change the library.'); };
+const reply = (res, code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(obj)); };
+
+// "Folder/name.jpg" -> ['Folder', 'name.jpg'], keeping only names that are safe on Windows
+function safeParts(p) {
+  const parts = String(p || '').replace(/\\/g, '/').split('/')
+    .map(x => x.replace(/[<>:"|?*\x00-\x1f]/g, '').replace(/[. ]+$/, '').trim())
+    .filter(x => x && x !== '.' && x !== '..');
+  if (!parts.length || parts.length > 2 || parts.some(x => x.startsWith('.'))) return null;
+  if (!MEDIA_EXT.includes(path.extname(parts[parts.length - 1]).toLowerCase())) return null;
+  return parts;
+}
+
+function upload(req, res) {
+  const parts = safeParts(new URL(req.url, 'http://x').searchParams.get('path'));
+  if (!parts) { req.resume(); return reply(res, 400, { error: 'Only videos (MP4, WebM, MKV, MOV) and images (JPG, PNG, WebP) can be added.' }); }
+  const dir = parts.length === 2 ? path.join(MEDIA, parts[0]) : MEDIA;
+  fs.mkdirSync(dir, { recursive: true });
+  // never overwrite: "name.jpg" becomes "name (2).jpg" if it already exists
+  const ext = path.extname(parts[parts.length - 1]), base = path.basename(parts[parts.length - 1], ext);
+  let name = base + ext, n = 2;
+  while (fs.existsSync(path.join(dir, name))) name = `${base} (${n++})${ext}`;
+  const tmp = path.join(dir, `.${name}.${Date.now()}.part`);
+  const out = fs.createWriteStream(tmp);
+  let failed = false;
+  const fail = (msg) => {
+    if (failed) return; failed = true;
+    out.destroy(); fs.rm(tmp, { force: true }, () => {});
+    if (!res.headersSent) reply(res, 500, { error: msg });
+  };
+  req.on('aborted', () => fail('The upload was cancelled.'));
+  out.on('error', e => fail(e.code === 'ENOSPC' ? 'The PC\'s disk is full.' : e.message));
+  out.on('finish', () => {
+    if (failed) return;
+    fs.rename(tmp, path.join(dir, name), err => {
+      if (err) return fail(err.message);
+      rescan();
+      reply(res, 200, { ok: true, id: (parts.length === 2 ? parts[0] + '/' : '') + name });
+    });
+  });
+  req.pipe(out);
+}
+
+function remove(req, res) {
+  const q = new URL(req.url, 'http://x').searchParams;
+  const id = q.get('id'), folder = q.get('folder');
+  const loaded = state.videoId;
+  let ids = [];
+  if (id) {
+    if (!library.some(v => v.id === id)) return reply(res, 404, { error: 'That file isn\'t in the library.' });
+    if (loaded === id) return reply(res, 409, { error: 'Unload it first.' });
+    fs.rmSync(path.join(MEDIA, ...id.split('/')), { force: true });
+    ids = [id];
+  } else if (folder) {
+    const parts = String(folder).split('/');
+    if (parts.length !== 1 || !library.some(v => v.folder === folder)) return reply(res, 404, { error: 'That folder isn\'t in the library.' });
+    if (loaded && loaded.startsWith(folder + '/')) return reply(res, 409, { error: 'Unload the item from this folder first.' });
+    ids = library.filter(v => v.folder === folder).map(v => v.id);
+    fs.rmSync(path.join(MEDIA, folder), { recursive: true, force: true });
+  } else return reply(res, 400, { error: 'Nothing to delete.' });
+  ids.forEach(i => delete meta[i]); writeJSON(META_FILE, meta);
+  sendHeadsets({ t: 'remove', ids });   // free the space on the headsets too
+  rescan();
+  reply(res, 200, { ok: true, removed: ids.length });
 }
 
 // ---------------------------------------------------------------- playback state
@@ -225,7 +329,7 @@ function command(m) {
     case 'cancel':
       return sendHeadsets({ t: 'cancel' }, m.to);
     case 'remove':
-      return sendHeadsets({ t: 'remove', id: m.id }, m.to);
+      return sendHeadsets({ t: 'remove', ids: m.ids || [m.id] }, m.to);
     case 'rename': {
       const h = headsets.get(m.headset); if (!h) return;
       h.name = String(m.name || '').slice(0, 40) || h.name; saveHeadsets();
@@ -333,6 +437,7 @@ watchVideos();
 
 const headsetServer = https.createServer(certificate(), handler('headset.html'));
 const panelServer = http.createServer(handler('panel.html'));
+panelServer.requestTimeout = 0;   // big uploads can take longer than Node's default five minutes
 attach(new WebSocketServer({ server: headsetServer, path: '/ws' }), false);
 attach(new WebSocketServer({ server: panelServer, path: '/ws' }), true);
 
@@ -355,8 +460,9 @@ panelServer.listen(cfg.panelPort, '127.0.0.1', () => {
     console.log('  -------------------------------');
     console.log(`  Control panel (this PC):  http://localhost:${cfg.panelPort}`);
     console.log('  Headsets open:            ' + (ips.length ? ips.map(ip => `https://${ip}:${cfg.headsetPort}`).join('\n                            ') : '(no network found – connect this PC to Wi-Fi or Ethernet)'));
-    console.log(`  Videos folder:            ${VIDEOS}`);
-    console.log(`  Found:                    ${library.filter(v => v.kind === 'video').length} videos, ${library.filter(v => v.kind === 'image').length} images`);
+    console.log(`  Media folder:             ${MEDIA}`);
+    const plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
+    console.log(`  Found:                    ${plural(library.filter(v => v.kind === 'video').length, 'video')}, ${plural(library.filter(v => v.kind === 'image').length, 'image')}`);
     console.log('');
     console.log('  Leave this window open while you use the system. Close it to stop the server.');
     console.log('');

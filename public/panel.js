@@ -28,9 +28,9 @@
   fetch('/api/info').then(r => r.json()).then(info => {
     $('joinUrl').textContent = info.addresses[0] || 'No network found';
     $('joinUrl').title = info.addresses.join('\n');
-    videosDir = info.videosDir; renderLibrary();
+    mediaDir = info.mediaDir; libSig = ''; renderLibrary();
   }).catch(() => { $('joinUrl').textContent = 'Unknown'; });
-  let videosDir = '';
+  let mediaDir = '';
   $('copyUrl').addEventListener('click', () => {
     const t = $('joinUrl').textContent;
     (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => toast('Address copied'), () => {
@@ -92,7 +92,7 @@
   const durationNow = () => { const it = link.state && libItem(link.state.videoId); return (it && it.duration) || (isFinite(pv.duration) ? pv.duration : 0); };
   function renderNow() {
     const s = link.state, it = s && s.videoId ? libItem(s.videoId) : null;
-    $('nowName').textContent = it ? it.id : 'No video loaded';
+    $('nowName').textContent = it ? (it.folder ? it.folder + ' › ' : '') + it.name : 'Nothing loaded';
     $('nowFmt').textContent = it ? (it.kind === 'image' ? 'Image · ' : '') + SHAPES[it.shape] + ' · ' + LAYOUTS[it.layout] : '';
     $('stageEmpty').hidden = !!it;
     const pickable = !!it && it.shape !== 'flat';
@@ -104,7 +104,7 @@
     const playing = !!(s && s.playing);
     $('playBtn').setAttribute('aria-label', playing ? 'Pause' : 'Play');
     $('wallIcon').innerHTML = $('playIcon').innerHTML = playing ? '<path d="M6 4h4.5v16H6zM13.5 4H18v16h-4.5z"/>' : '<path d="M7 4.5v15l13-7.5z"/>';
-    renderReady();
+    renderReady(); renderSequence();
   }
   function renderReady() {
     const s = link.state, chip = $('readyChip');
@@ -136,6 +136,30 @@
     else if (s.position > 0) { st.textContent = 'Paused'; st.className = 'chip warn'; }
     else { st.textContent = 'Stopped'; st.className = 'chip'; }
   }
+  // stepping through a folder
+  function sequence() {
+    const it = link.state && libItem(link.state.videoId);
+    if (!it || !it.folder) return null;
+    const list = library.filter(v => v.folder === it.folder);
+    return { list, i: list.findIndex(v => v.id === it.id), folder: it.folder };
+  }
+  function step(d) {
+    const q = sequence(); if (!q) return;
+    const j = q.i + d; if (j < 0 || j >= q.list.length) return;
+    cmd('load', { id: q.list[j].id });
+  }
+  function renderSequence() {
+    const q = sequence();
+    ['seqBox', 'wallSeq'].forEach(id => { $(id).hidden = !q; });
+    if (!q) return;
+    const label = (q.i + 1) + ' of ' + q.list.length + ' in ' + q.folder;
+    $('seqPos').textContent = label; $('wallSeqPos').textContent = (q.i + 1) + ' of ' + q.list.length;
+    ['prevBtn', 'wallPrev'].forEach(id => { $(id).disabled = q.i <= 0; });
+    ['nextBtn', 'wallNext'].forEach(id => { $(id).disabled = q.i >= q.list.length - 1; });
+  }
+  ['prevBtn', 'wallPrev'].forEach(id => $(id).addEventListener('click', () => step(-1)));
+  ['nextBtn', 'wallNext'].forEach(id => $(id).addEventListener('click', () => step(1)));
+
   $('playBtn').addEventListener('click', () => cmd(link.state && link.state.playing ? 'pause' : 'play'));
   $('stopBtn').addEventListener('click', () => cmd('stop'));
   $('backBtn').addEventListener('click', () => cmd('skip', { by: -10 }));
@@ -147,9 +171,14 @@
   $('seek').addEventListener('change', () => { seeking = false; cmd('seek', { position: $('seek').value / 1000 * durationNow() }); });
   window.addEventListener('keydown', e => {
     if (e.key === 'Escape') { if (wallOpen) openWall(false); else if (target) { target = null; renderTarget(); } return; }
-    if (/INPUT|SELECT|TEXTAREA|BUTTON/.test(document.activeElement.tagName)) return;
+    const typing = /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName);
+    if (!typing && sequence()) {   // presentation clickers send PageUp / PageDown
+      if (e.key === 'PageDown' || e.key === ']') { e.preventDefault(); step(1); return; }
+      if (e.key === 'PageUp' || e.key === '[') { e.preventDefault(); step(-1); return; }
+    }
+    if (typing || document.activeElement.tagName === 'BUTTON') return;
     if (!link.state || !link.state.videoId) return;
-    if (e.key === ' ') { e.preventDefault(); $('playBtn').click(); }
+    if (e.key === ' ') { e.preventDefault(); if (!$('playBtn').disabled) $('playBtn').click(); }
     else if (e.key === 'ArrowLeft') cmd('skip', { by: -10 });
     else if (e.key === 'ArrowRight') cmd('skip', { by: 10 });
   });
@@ -178,14 +207,107 @@
     return { done, active, total: online.length };
   }
   let libSig = '', openVid = null;
+  const openFolders = new Set((() => { try { return JSON.parse(localStorage.getItem('fc.openFolders') || '[]'); } catch { return []; } })());
+  const saveOpenFolders = () => { try { localStorage.setItem('fc.openFolders', JSON.stringify([...openFolders])); } catch {} };
+  const mk = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  const btn = (cls, text, fn, key) => { const b = mk('button', cls, text); b.type = 'button'; b.onclick = fn; if (key) b.dataset.key = key; return b; };
+  const countText = items => [[items.filter(v => v.kind !== 'image').length, 'video'], [items.filter(v => v.kind === 'image').length, 'image']]
+    .filter(([n]) => n).map(([n, w]) => n + ' ' + w + (n === 1 ? '' : 's')).join(', ');
+  const FOLDER_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.6l2 2H19.5A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/></svg>';
+
+  async function deleteFromPC(q, what) {
+    if (!window.confirm('Delete ' + what + ' from this PC? This also removes it from the headsets and can\'t be undone.')) return;
+    try {
+      const res = await fetch('/api/delete?' + new URLSearchParams(q), { method: 'POST' });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || 'The server refused');
+      toast('Deleted ' + what);
+    } catch (e) { toast('Couldn\'t delete: ' + e.message); }
+  }
+
+  function itemRow(it, cur) {
+    const isCur = cur === it.id, open = openVid === it.id, r = readiness(it.id);
+    const row = mk('div', 'vid' + (isCur ? ' current' : '') + (open ? ' open' : ''));
+    const head = mk('div', 'vhead');
+    const tog = btn('vtog', null, () => {
+      openVid = open ? null : it.id; renderLibrary();
+      const el = openVid && $('lib').querySelector('.vid.open'); if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }, 'tog:' + it.id);
+    tog.setAttribute('aria-expanded', open ? 'true' : 'false');
+    const txt = mk('span', 'txt');
+    txt.append(mk('span', 'n', it.name), mk('span', 'm num', [(it.kind === 'image' ? 'Image · ' : '') + SHAPES[it.shape] + ' ' + LAYOUTS[it.layout], fmtSize(it.size), it.duration ? fmtTime(it.duration) : null,
+      r.total ? r.done + ' of ' + r.total + ' ready' + (r.active ? ', ' + r.active + ' downloading' : '') : null].filter(Boolean).join(' · ')));
+    tog.append(mk('span', 'ar'), txt);
+    const acts = mk('div', 'acts');
+    if (isCur) acts.append(mk('span', 'chip live', 'Loaded'));
+    acts.append(btn(isCur ? 'quiet' : 'primary', isCur ? 'Unload' : 'Load', () => cmd(isCur ? 'unload' : 'load', isCur ? {} : { id: it.id }), 'load:' + it.id));
+    head.append(tog, acts); row.append(head);
+    if (open) {
+      const body = mk('div', 'vbody');
+      const mkSel = (opts, val, label) => {
+        const sel = document.createElement('select'); sel.setAttribute('aria-label', label + ' for ' + it.name);
+        Object.entries(opts).forEach(([v, t]) => { const o = document.createElement('option'); o.value = v; o.textContent = t; sel.append(o); });
+        sel.value = val; return sel;
+      };
+      const shapeSel = mkSel(SHAPES, it.shape, 'Projection'), layoutSel = mkSel(LAYOUTS, it.layout, 'Stereo layout');
+      const fmtChange = () => cmd('format', { id: it.id, shape: shapeSel.value, layout: layoutSel.value });
+      shapeSel.onchange = fmtChange; layoutSel.onchange = fmtChange;
+      const send = btn('', 'Send to headsets', () => { cmd('download', { ids: [it.id] }); toast('Sending ' + it.name + ' to the headsets'); });
+      send.disabled = !r.total || r.done === r.total;
+      const rm = btn('quiet', 'Remove from headsets', () => { cmd('remove', { ids: [it.id] }); toast('Removing ' + it.name + ' from the headsets'); });
+      rm.disabled = !r.done || isCur; rm.title = isCur ? 'Unload it first' : '';
+      const del = btn('quiet danger', 'Delete from PC', () => deleteFromPC({ id: it.id }, '"' + it.name + '"'));
+      del.disabled = isCur; del.title = isCur ? 'Unload it first' : '';
+      body.append(shapeSel, layoutSel, mk('span', 'sp'), send, rm, del);
+      row.append(body);
+    }
+    return row;
+  }
+
+  function folderGroup(name, items, cur) {
+    const open = openFolders.has(name);
+    const hasCur = items.some(v => v.id === cur);
+    const online = headsets.filter(h => h.online);
+    const complete = online.filter(h => items.every(v => { const f = h.status && h.status.files && h.status.files[v.id]; return f && f.state === 'done'; })).length;
+    const grp = mk('div', 'grp' + (open ? ' open' : '') + (hasCur ? ' current' : ''));
+    grp.dataset.folder = name;
+    const head = mk('div', 'vhead');
+    const tog = btn('vtog', null, () => { open ? openFolders.delete(name) : openFolders.add(name); saveOpenFolders(); renderLibrary(); }, 'folder:' + name);
+    tog.setAttribute('aria-expanded', open ? 'true' : 'false');
+    const ic = mk('span', 'fic'); ic.innerHTML = FOLDER_SVG;
+    const txt = mk('span', 'txt');
+    txt.append(mk('span', 'n', name), mk('span', 'm num', [countText(items), fmtSize(items.reduce((a, v) => a + v.size, 0)),
+      online.length ? 'complete on ' + complete + ' of ' + online.length + ' headsets' : null].filter(Boolean).join(' · ')));
+    tog.append(mk('span', 'ar'), ic, txt);
+    const acts = mk('div', 'acts');
+    if (hasCur) acts.append(mk('span', 'chip live', (items.findIndex(v => v.id === cur) + 1) + ' of ' + items.length));
+    else acts.append(btn('primary', 'Load first', () => cmd('load', { id: items[0].id }), 'loadf:' + name));
+    head.append(tog, acts); grp.append(head);
+    if (open) {
+      const body = mk('div', 'gbody');
+      const tools = mk('div', 'gtools');
+      const send = btn('', 'Send folder to headsets', () => { cmd('download', { ids: items.map(v => v.id) }); toast('Sending ' + items.length + ' files from ' + name + ' to the headsets'); });
+      send.disabled = !online.length || complete === online.length;
+      const rm = btn('quiet', 'Remove folder from headsets', () => { cmd('remove', { ids: items.map(v => v.id).filter(id => id !== cur) }); toast('Removing ' + name + ' from the headsets'); });
+      const add = btn('quiet', 'Add files here', () => pickFiles(name));
+      const del = btn('quiet danger', 'Delete folder from PC', () => deleteFromPC({ folder: name }, 'the folder "' + name + '" and its ' + items.length + ' files'));
+      del.disabled = hasCur; del.title = hasCur ? 'Unload the item from this folder first' : '';
+      tools.append(send, rm, add, del);
+      body.append(tools);
+      items.forEach(it => body.append(itemRow(it, cur)));
+      grp.append(body);
+    }
+    return grp;
+  }
+
   function renderLibrary() {
     const s = link.state;
     const cur = s && s.videoId;
+    const curItem = libItem(cur);
     $('libSum').textContent = library.length
-      ? [[library.filter(v => v.kind !== 'image').length, 'video'], [library.filter(v => v.kind === 'image').length, 'image']]
-          .filter(([n]) => n).map(([n, w]) => n + ' ' + w + (n === 1 ? '' : 's')).join(', ') + (cur ? ' · Loaded: ' + cur : ' · nothing loaded')
+      ? countText(library) + (curItem ? ' · Loaded: ' + (curItem.folder ? curItem.folder + ' › ' : '') + curItem.name : ' · nothing loaded')
       : 'Nothing yet';
-    const sig = JSON.stringify([library, cur, openVid, headsets.map(h => [h.online, h.status && h.status.files])]);
+    const sig = JSON.stringify([library, cur, openVid, [...openFolders], headsets.map(h => [h.online, h.status && h.status.files])]);
     if (sig === libSig) return;
     const box = $('lib');
     if (document.activeElement && box.contains(document.activeElement) && document.activeElement.tagName === 'SELECT') return; // don't redraw under an open menu
@@ -193,54 +315,97 @@
     const focusId = document.activeElement && box.contains(document.activeElement) ? document.activeElement.dataset.key : null;
     box.textContent = '';
     if (!library.length) {
-      box.innerHTML = '<p class="empty-lib">Nothing here yet. Copy videos or 360° images (JPG, PNG or WebP) into <code></code> and they\'ll appear here automatically.</p>';
-      box.querySelector('code').textContent = videosDir || 'the videos folder';
+      box.innerHTML = '<p class="empty-lib">Nothing here yet. Use <strong>Add files</strong> or <strong>Add folder</strong> above, drag files onto this box, or copy them into <code></code>.</p>';
+      box.querySelector('code').textContent = mediaDir || 'the media folder';
       return;
     }
-    const mk = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
-    library.forEach(it => {
-      const isCur = cur === it.id, open = openVid === it.id, r = readiness(it.id);
-      const row = mk('div', 'vid' + (isCur ? ' current' : '') + (open ? ' open' : ''));
-      const head = mk('div', 'vhead');
-      const tog = mk('button', 'vtog'); tog.type = 'button'; tog.dataset.key = 'tog:' + it.id;
-      tog.setAttribute('aria-expanded', open ? 'true' : 'false');
-      tog.onclick = () => {
-        openVid = open ? null : it.id; renderLibrary();
-        const el = openVid && $('lib').querySelector('.vid.open'); if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-      };
-      const txt = mk('span', 'txt');
-      txt.append(mk('span', 'n', it.id), mk('span', 'm num', [(it.kind === 'image' ? 'Image · ' : '') + SHAPES[it.shape] + ' ' + LAYOUTS[it.layout], fmtSize(it.size), it.duration ? fmtTime(it.duration) : null,
-        r.total ? r.done + ' of ' + r.total + ' ready' + (r.active ? ', ' + r.active + ' downloading' : '') : null].filter(Boolean).join(' · ')));
-      tog.append(mk('span', 'ar'), txt);
-      const acts = mk('div', 'acts');
-      if (isCur) acts.append(Object.assign(mk('span', 'chip live', 'Loaded')));
-      const load = mk('button', isCur ? 'quiet' : 'primary', isCur ? 'Unload' : 'Load'); load.type = 'button'; load.dataset.key = 'load:' + it.id;
-      load.onclick = () => cmd(isCur ? 'unload' : 'load', isCur ? {} : { id: it.id });
-      acts.append(load);
-      head.append(tog, acts); row.append(head);
-      if (open) {
-        const body = mk('div', 'vbody');
-        const mkSel = (opts, val, label) => {
-          const sel = document.createElement('select'); sel.setAttribute('aria-label', label + ' for ' + it.id);
-          Object.entries(opts).forEach(([v, t]) => { const o = document.createElement('option'); o.value = v; o.textContent = t; sel.append(o); });
-          sel.value = val; return sel;
-        };
-        const shapeSel = mkSel(SHAPES, it.shape, 'Projection'), layoutSel = mkSel(LAYOUTS, it.layout, 'Stereo layout');
-        const fmtChange = () => cmd('format', { id: it.id, shape: shapeSel.value, layout: layoutSel.value });
-        shapeSel.onchange = fmtChange; layoutSel.onchange = fmtChange;
-        const send = mk('button', '', 'Send to headsets'); send.type = 'button';
-        send.disabled = !r.total || r.done === r.total;
-        send.onclick = () => { cmd('download', { ids: [it.id] }); toast('Sending ' + it.id + ' to the headsets'); };
-        const rm = mk('button', 'quiet', 'Remove from headsets'); rm.type = 'button';
-        rm.disabled = !r.done || isCur; rm.title = isCur ? 'Unload the video first' : '';
-        rm.onclick = () => { cmd('remove', { id: it.id }); toast('Removing ' + it.id + ' from the headsets'); };
-        body.append(shapeSel, layoutSel, mk('span', 'sp'), send, rm);
-        row.append(body);
-      }
-      box.append(row);
-    });
+    const folders = new Map();
+    library.filter(v => v.folder).forEach(v => { if (!folders.has(v.folder)) folders.set(v.folder, []); folders.get(v.folder).push(v); });
+    folders.forEach((items, name) => box.append(folderGroup(name, items, cur)));
+    library.filter(v => !v.folder).forEach(it => box.append(itemRow(it, cur)));
     if (focusId) { const el = box.querySelector('[data-key="' + CSS.escape(focusId) + '"]'); if (el) el.focus(); }
   }
+
+  // ------------------------------------------------------------ adding files from this PC
+  const MEDIA_RE = /\.(mp4|m4v|webm|mkv|mov|jpe?g|png|webp)$/i;
+  const uploads = { queue: [], xhr: null, done: 0, total: 0, skipped: 0, failed: [] };
+  function enqueueUploads(list) {   // list of { file, path }
+    const ok = list.filter(x => MEDIA_RE.test(x.file.name));
+    uploads.skipped += list.length - ok.length;
+    if (!ok.length) { if (list.length) toast('Only videos (MP4, WebM, MKV, MOV) and images (JPG, PNG, WebP) can be added'); return; }
+    if (!uploads.xhr && !uploads.queue.length) { uploads.done = 0; uploads.total = 0; uploads.failed = []; }
+    uploads.queue.push(...ok); uploads.total += ok.length;
+    ok.forEach(x => { const f = x.path.split('/')[0]; if (x.path.includes('/')) { openFolders.add(f); saveOpenFolders(); } });
+    if (!uploads.xhr) nextUpload();
+    renderUploads(0);
+  }
+  function nextUpload() {
+    const job = uploads.queue.shift();
+    if (!job) {
+      uploads.xhr = null; renderUploads();
+      const msg = uploads.done + ' added' + (uploads.failed.length ? ', ' + uploads.failed.length + ' failed' : '') + (uploads.skipped ? ', ' + uploads.skipped + ' skipped (not a video or image)' : '');
+      toast(msg); uploads.skipped = 0;
+      return;
+    }
+    const xhr = uploads.xhr = new XMLHttpRequest();
+    uploads.current = job;
+    xhr.open('PUT', '/api/upload?path=' + encodeURIComponent(job.path));
+    xhr.upload.onprogress = e => renderUploads(e.lengthComputable ? e.loaded / e.total : 0);
+    xhr.onload = () => {
+      if (xhr.status === 200) uploads.done++;
+      else { let m = 'failed'; try { m = JSON.parse(xhr.responseText).error; } catch {} uploads.failed.push(job.path + ': ' + m); }
+      nextUpload();
+    };
+    xhr.onerror = () => { uploads.failed.push(job.path + ': connection lost'); nextUpload(); };
+    xhr.onabort = () => { uploads.xhr = null; uploads.queue = []; renderUploads(); toast('Adding files cancelled'); };
+    xhr.send(job.file);
+  }
+  function renderUploads(frac) {
+    const box = $('uploads');
+    if (!uploads.xhr) { box.hidden = true; return; }
+    box.hidden = false;
+    const n = uploads.done + uploads.failed.length + 1;
+    $('upText').textContent = 'Adding ' + n + ' of ' + uploads.total + ' · ' + uploads.current.path + (frac != null ? ' · ' + Math.floor(frac * 100) + '%' : '');
+    if (frac != null) $('upBar').style.width = (((n - 1) + frac) / uploads.total * 100).toFixed(1) + '%';
+  }
+  $('upCancel').addEventListener('click', () => { if (uploads.xhr) uploads.xhr.abort(); });
+
+  let pickTarget = null;
+  function pickFiles(folder) { pickTarget = folder || null; $('addFilesInput').value = ''; $('addFilesInput').click(); }
+  $('addFilesBtn').addEventListener('click', () => pickFiles(null));
+  $('addFolderBtn').addEventListener('click', () => { $('addFolderInput').value = ''; $('addFolderInput').click(); });
+  $('addFilesInput').addEventListener('change', () => {
+    enqueueUploads([...$('addFilesInput').files].map(file => ({ file, path: (pickTarget ? pickTarget + '/' : '') + file.name })));
+  });
+  $('addFolderInput').addEventListener('change', () => {
+    // keep the chosen folder's name; files in deeper subfolders are flattened into it
+    enqueueUploads([...$('addFolderInput').files].map(file => {
+      const parts = (file.webkitRelativePath || file.name).split('/');
+      return { file, path: (parts.length > 1 ? parts[0] + '/' : '') + parts[parts.length - 1] };
+    }));
+  });
+
+  // drag and drop: files go to the top level (or into the folder you drop them on); a dropped folder keeps its name
+  const libBox = $('libFold');
+  let dragDepth = 0;
+  libBox.addEventListener('dragenter', e => { if ([...e.dataTransfer.types].includes('Files')) { dragDepth++; libBox.classList.add('dropping'); } });
+  libBox.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; libBox.classList.remove('dropping'); } });
+  libBox.addEventListener('dragover', e => { if ([...e.dataTransfer.types].includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
+  libBox.addEventListener('drop', async e => {
+    e.preventDefault(); dragDepth = 0; libBox.classList.remove('dropping');
+    const grp = e.target.closest && e.target.closest('.grp');
+    const into = grp ? grp.dataset.folder : null;
+    const entries = [...e.dataTransfer.items].map(i => i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
+    const out = [];
+    const fileOf = entry => new Promise(res => entry.file(res, () => res(null)));
+    const readAll = dir => new Promise(res => { const rd = dir.createReader(), all = []; const step = () => rd.readEntries(b => { if (!b.length) return res(all); all.push(...b); step(); }, () => res(all)); step(); });
+    const walk = async (dir, folder) => { for (const en of await readAll(dir)) { if (en.isFile) { const f = await fileOf(en); if (f) out.push({ file: f, path: folder + '/' + f.name }); } else if (en.isDirectory) await walk(en, folder); } };
+    for (const en of entries) {
+      if (en.isFile) { const f = await fileOf(en); if (f) out.push({ file: f, path: (into ? into + '/' : '') + f.name }); }
+      else if (en.isDirectory) await walk(en, into || en.name);
+    }
+    enqueueUploads(out);
+  });
 
   // folding panels, remembered between visits
   function setFold(sec, open) {

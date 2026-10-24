@@ -6,9 +6,10 @@ cert/
 library.json
 headsets.json
 
-# Video files stay on the PC, not in the repository
-videos/*
-!videos/README.txt
+# Media files stay on the PC, not in the repository
+media/*
+!media/README.txt
+videos/
 
 # Windows / editor clutter
 Thumbs.db

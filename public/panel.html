@@ -87,6 +87,25 @@ h2 { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-t
 .vbody { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; padding: 2px 12px 12px 30px; }
 .vbody select { font-size: 13px; padding: 4px 6px; flex: 0 1 170px; }
 .vbody .sp { flex: 1 1 0; }
+button.danger:hover:not(:disabled) { background: rgba(255, 107, 139, 0.1); }
+
+/* folders in the library */
+.grp { border: 1px solid var(--rule); border-radius: 10px; min-width: 0; background: rgba(26, 20, 56, 0.35); }
+.grp.current { border-color: var(--fc-teal); }
+.grp.open > .vhead .vtog .ar { transform: rotate(90deg); }
+.grp .vtog .fic { flex: none; color: var(--fc-teal); display: grid; }
+.gbody { display: grid; gap: 6px; padding: 0 10px 10px 10px; }
+.gtools { display: flex; gap: 8px; flex-wrap: wrap; padding: 2px 0 6px 26px; }
+.gtools button { padding: 5px 12px; font-size: 12px; }
+.libtools { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.libtools .sp { flex: 1 1 0; }
+.uploads { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; align-items: center; padding: 10px 12px; border-radius: 10px; background: var(--raised); }
+.uploads .t { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.uploads .bar { grid-column: 1 / -1; }
+#libFold.dropping { outline: 2px dashed var(--fc-teal); outline-offset: -6px; background: rgba(100, 223, 223, 0.06); }
+.droptip { color: var(--faint); font-size: 12px; }
+.seq { display: inline-flex; gap: 6px; align-items: center; }
+.seq .num { color: var(--dim); font-size: 13px; white-space: nowrap; }
 
 /* folding panels */
 .foldhead { display: flex; align-items: center; gap: 10px; width: 100%; padding: 0; border: 0; border-radius: 8px; background: none; color: inherit; font: inherit; text-align: left; letter-spacing: 0; cursor: pointer; min-width: 0; }
@@ -159,7 +178,7 @@ h2 { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-t
     <div class="col">
       <section class="panel" aria-label="Now playing">
         <div class="ph">
-          <div class="nowline"><strong id="nowName">No video loaded</strong><span class="muted" id="nowFmt"></span></div>
+          <div class="nowline"><strong id="nowName">Nothing loaded</strong><span class="muted" id="nowFmt"></span></div>
           <span class="chip" id="readyChip" hidden></span>
         </div>
         <div class="stage" id="stage">
@@ -190,6 +209,11 @@ h2 { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-t
             <button type="button" class="quiet" id="stopBtn" disabled>Stop</button>
             <button type="button" class="quiet" id="backBtn" disabled>−10 s</button>
             <button type="button" class="quiet" id="fwdBtn" disabled>+10 s</button>
+            <span class="seq" id="seqBox" hidden>
+              <button type="button" class="quiet" id="prevBtn" title="Previous in this folder (Page Up)">Previous</button>
+              <button type="button" id="nextBtn" title="Next in this folder (Page Down)">Next</button>
+              <span class="num" id="seqPos"></span>
+            </span>
             <button type="button" class="quiet" id="recenterBtn" title="Turns everyone to face the centre of the video">Recentre everyone</button>
             <span class="chip" id="playState">Stopped</span>
           </div>
@@ -199,9 +223,20 @@ h2 { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-t
       <section class="panel fold open grow" id="libFold">
         <button type="button" class="foldhead" aria-expanded="true" aria-controls="libFoldBody"><h2>Library</h2><span class="sumline num" id="libSum"></span><span class="chev" aria-hidden="true"></span></button>
         <div class="foldbody" id="libFoldBody">
-          <div class="btnrow">
+          <div class="libtools">
+            <button type="button" id="addFilesBtn">Add files</button>
+            <button type="button" id="addFolderBtn">Add folder</button>
+            <span class="droptip">or drag files and folders here</span>
+            <span class="sp"></span>
             <label class="toggle small muted" for="streamOk"><input type="checkbox" id="streamOk"> Stream to headsets that don't have the file</label>
             <button type="button" class="quiet" id="cancelAll">Cancel all downloads</button>
+            <input type="file" id="addFilesInput" multiple hidden accept="video/*,image/*,.mp4,.m4v,.webm,.mkv,.mov,.jpg,.jpeg,.png,.webp">
+            <input type="file" id="addFolderInput" webkitdirectory multiple hidden>
+          </div>
+          <div class="uploads" id="uploads" hidden>
+            <span class="t num" id="upText"></span>
+            <button type="button" class="quiet" id="upCancel">Cancel</button>
+            <div class="bar"><i id="upBar"></i></div>
           </div>
           <div class="lib scroll" id="lib"></div>
         
@@ -242,6 +277,11 @@ h2 { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-t
     <div class="grow">
       <button type="button" class="primary mini" id="wallPlay" aria-label="Play"><svg viewBox="0 0 24 24" id="wallIcon"><path d="M7 4.5v15l13-7.5z"/></svg></button>
       <span class="time num" id="wallTime">0:00</span>
+      <span class="seq" id="wallSeq" hidden>
+        <button type="button" class="quiet" id="wallPrev">Previous</button>
+        <button type="button" id="wallNext">Next</button>
+        <span class="num" id="wallSeqPos"></span>
+      </span>
       <button type="button" class="quiet" id="wallRecenter">Recentre everyone</button>
       <button type="button" class="quiet" id="wallClose">Close</button>
     </div>

@@ -91,7 +91,7 @@
           ensureSource(); applyScreen(); syncTick(true); break;
         case 'download': enqueue(m.ids); break;
         case 'cancel': cancelDownloads(); break;
-        case 'remove': removeLocal(m.id); break;
+        case 'remove': (m.ids || [m.id]).forEach(id => removeLocal(id)); break;
       }
     }
   });
@@ -171,7 +171,7 @@
       ensureSource();
     } catch (e) {
       if (writer) { try { await writer.abort(); } catch {} }
-      try { (await opfs()).removeEntry(fileName(id)); } catch {}
+      try { await (await opfs()).removeEntry(fileName(id)); } catch {}
       dl[id] = e.name === 'AbortError' ? { state: 'cancelled', pct: 0 }
         : { state: 'error', pct: 0, error: e.name === 'QuotaExceededError' ? 'Not enough space on this headset' : e.message };
     }
@@ -182,13 +182,13 @@
     if (active === id && abortCtl) abortCtl.abort();
     queue = queue.filter(q => q !== id);
     delete index[id]; store.set('fc.files', index); delete dl[id];
-    if (opfsOK) { try { (await opfs()).removeEntry(fileName(id)); } catch {} }
+    if (opfsOK) { try { await (await opfs()).removeEntry(fileName(id)); } catch {} }
     renderFiles();
   }
 
   $('localFile').addEventListener('change', () => {
     const f = $('localFile').files[0]; if (!f) return;
-    const it = libItem(f.name);
+    const it = libItem(f.name) || library.find(v => v.name === f.name);
     if (!it) { setHint('"' + f.name + '" isn\'t in the library on the PC. Pick a file with the same name as one in the library.', true); return; }
     manual[it.id] = f; setHint('Using "' + f.name + '" from this headset.'); renderFiles(); ensureSource();
   });
@@ -521,7 +521,7 @@
   }
   function updateUI() {
     const s = link.state, it = s && s.videoId ? libItem(s.videoId) : null;
-    $('nowName').textContent = it ? it.id : 'Waiting for the operator';
+    $('nowName').textContent = it ? (it.folder ? it.folder + ' › ' : '') + (it.name || it.id) : 'Waiting for the operator';
     $('nowFormat').textContent = it ? (it.kind === 'image' ? 'Image · ' : '') + SHAPES[it.shape] + ' · ' + LAYOUTS[it.layout] + ' · ' + FC.fmtSize(it.size) : '';
     const chip = $('nowReady');
     chip.hidden = !it;
@@ -549,36 +549,60 @@
     $('hint').textContent = hint; $('hint').className = 'hint' + (hintBad ? ' bad' : '');
   }
 
+  const openGroups = new Set();
+  function fileRow(it) {
+    const row = document.createElement('div'); row.className = 'file';
+    const d = dl[it.id], have = hasLocal(it), picked = !!manual[it.id];
+    let status, cls = '';
+    if (picked) { status = 'Using a file picked on this headset'; cls = 'ok'; }
+    else if (have) { status = 'On this headset'; cls = 'ok'; }
+    else if (d && d.state === 'active') status = 'Downloading ' + Math.floor(d.pct * 100) + '%';
+    else if (d && d.state === 'queued') status = 'Waiting to download';
+    else if (d && d.state === 'error') { status = d.error; cls = 'bad'; }
+    else status = 'Not on this headset';
+    const info = document.createElement('div');
+    const n = document.createElement('div'); n.className = 'n'; n.textContent = it.name || it.id;
+    const m = document.createElement('div'); m.className = 'm';
+    m.textContent = (it.kind === 'image' ? 'Image · ' : '') + FC.fmtSize(it.size) + ' · ' + SHAPES[it.shape] + ' · ' + LAYOUTS[it.layout] + ' · ' + status;
+    if (cls) m.style.color = cls === 'ok' ? 'var(--green)' : 'var(--red)';
+    info.append(n, m);
+    const b = document.createElement('button'); b.type = 'button';
+    if (d && (d.state === 'active' || d.state === 'queued')) { b.textContent = 'Cancel'; b.className = 'quiet'; b.onclick = () => removeLocal(it.id); }
+    else if (have) { b.textContent = 'Remove'; b.className = 'quiet'; b.onclick = () => removeLocal(it.id); }
+    else { b.textContent = 'Download'; b.onclick = () => enqueue([it.id]); b.disabled = !opfsOK || picked; }
+    row.append(info, b);
+    if (d && d.state === 'active') { const bar = document.createElement('div'); bar.className = 'bar'; const i = document.createElement('i'); i.style.width = (d.pct * 100).toFixed(1) + '%'; bar.append(i); row.append(bar); }
+    return row;
+  }
   function renderFiles() {
     const list = $('fileList');
-    if (!library.length) { list.innerHTML = '<p class="empty">No videos in the library yet.</p>'; updateUI(); return; }
+    if (!library.length) { list.innerHTML = '<p class="empty">Nothing in the library yet.</p>'; updateUI(); return; }
     list.textContent = '';
-    library.forEach(it => {
-      const row = document.createElement('div'); row.className = 'file';
-      const d = dl[it.id], have = hasLocal(it), picked = !!manual[it.id];
-      let status, cls = '';
-      if (picked) { status = 'Using a file picked on this headset'; cls = 'ok'; }
-      else if (have) { status = 'On this headset'; cls = 'ok'; }
-      else if (d && d.state === 'active') status = 'Downloading ' + Math.floor(d.pct * 100) + '%';
-      else if (d && d.state === 'queued') status = 'Waiting to download';
-      else if (d && d.state === 'error') { status = d.error; cls = 'bad'; }
-      else status = 'Not on this headset';
-      const info = document.createElement('div');
-      const n = document.createElement('div'); n.className = 'n'; n.textContent = it.id;
-      const m = document.createElement('div'); m.className = 'm';
-      m.textContent = (it.kind === 'image' ? 'Image · ' : '') + FC.fmtSize(it.size) + ' · ' + SHAPES[it.shape] + ' · ' + LAYOUTS[it.layout] + ' · ' + status;
-      if (cls) m.style.color = cls === 'ok' ? 'var(--green)' : 'var(--red)';
-      info.append(n, m);
+    // folders become one collapsible line each, so a long series of photos doesn't fill the page
+    const folders = new Map();
+    library.filter(v => v.folder).forEach(v => { if (!folders.has(v.folder)) folders.set(v.folder, []); folders.get(v.folder).push(v); });
+    folders.forEach((items, name) => {
+      const det = document.createElement('details'); det.className = 'fgroup'; det.open = openGroups.has(name);
+      det.addEventListener('toggle', () => { det.open ? openGroups.add(name) : openGroups.delete(name); });
+      const sum = document.createElement('summary');
+      const have = items.filter(v => hasLocal(v) || manual[v.id]).length;
+      const active = items.some(v => dl[v.id] && (dl[v.id].state === 'active' || dl[v.id].state === 'queued'));
+      const t = document.createElement('span'); t.className = 'n'; t.textContent = name;
+      const m = document.createElement('span'); m.className = 'm';
+      m.textContent = have + ' of ' + items.length + ' on this headset' + (active ? ' · downloading' : '');
+      if (have === items.length) m.style.color = 'var(--green)';
       const b = document.createElement('button'); b.type = 'button';
-      if (d && (d.state === 'active' || d.state === 'queued')) { b.textContent = 'Cancel'; b.className = 'quiet'; b.onclick = () => removeLocal(it.id); }
-      else if (have) { b.textContent = 'Remove'; b.className = 'quiet'; b.onclick = () => removeLocal(it.id); }
-      else { b.textContent = 'Download'; b.onclick = () => enqueue([it.id]); b.disabled = !opfsOK || picked; }
-      row.append(info, b);
-      if (d && d.state === 'active') { const bar = document.createElement('div'); bar.className = 'bar'; const i = document.createElement('i'); i.style.width = (d.pct * 100).toFixed(1) + '%'; bar.append(i); row.append(bar); }
-      list.append(row);
+      if (have < items.length) { b.textContent = 'Download all'; b.disabled = !opfsOK; b.onclick = e => { e.preventDefault(); enqueue(items.map(v => v.id)); }; }
+      else { b.textContent = 'Remove all'; b.className = 'quiet'; b.onclick = e => { e.preventDefault(); items.forEach(v => removeLocal(v.id)); }; }
+      sum.append(t, m, b); det.append(sum);
+      const inner = document.createElement('div'); inner.className = 'files';
+      items.forEach(it => inner.append(fileRow(it)));
+      det.append(inner); list.append(det);
     });
+    library.filter(v => !v.folder).forEach(it => list.append(fileRow(it)));
     updateUI();
   }
+
 
   // ------------------------------------------------------------ entering VR
   let vrSupported = false, vrChecked = false;
