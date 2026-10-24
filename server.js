@@ -49,6 +49,7 @@ const MEDIA = path.resolve(ROOT, cfg.mediaDir || cfg.videosDir || 'media');
 const META_FILE = path.join(ROOT, 'library.json');
 const HEADSETS_FILE = path.join(ROOT, 'headsets.json');
 const now = () => performance.timeOrigin + performance.now(); // server clock, ms
+const VERSION = readJSON(path.join(ROOT, 'package.json'), {}).version || '?';
 
 // ---------------------------------------------------------------- network + certificate
 function lanIPs() {
@@ -180,7 +181,7 @@ function handler(defaultPage) {
     }
     if (url === '/api/info' && isLocal(req)) {
       res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' });
-      return res.end(JSON.stringify({ addresses: lanIPs().map(ip => `https://${ip}:${cfg.headsetPort}`), mediaDir: MEDIA }));
+      return res.end(JSON.stringify({ addresses: lanIPs().map(ip => `https://${ip}:${cfg.headsetPort}`), mediaDir: MEDIA, version: VERSION, features: ['upload', 'folders', 'images'] }));
     }
     if (url === '/api/upload' && req.method === 'PUT') { if (!isLocal(req)) return deny(res); return upload(req, res); }
     if (url === '/api/delete' && req.method === 'POST') { if (!isLocal(req)) return deny(res); return remove(req, res); }
@@ -235,7 +236,9 @@ function upload(req, res) {
     fs.rename(tmp, path.join(dir, name), err => {
       if (err) return fail(err.message);
       rescan();
-      reply(res, 200, { ok: true, id: (parts.length === 2 ? parts[0] + '/' : '') + name });
+      const id = (parts.length === 2 ? parts[0] + '/' : '') + name;
+      console.log('Added ' + id);
+      reply(res, 200, { ok: true, id });
     });
   });
   req.pipe(out);
@@ -456,7 +459,7 @@ panelServer.listen(cfg.panelPort, '127.0.0.1', () => {
   headsetServer.listen(cfg.headsetPort, '0.0.0.0', () => {
     const ips = lanIPs();
     console.log('');
-    console.log('  Full Circle Director is running');
+    console.log(`  Full Circle Director ${VERSION} is running`);
     console.log('  -------------------------------');
     console.log(`  Control panel (this PC):  http://localhost:${cfg.panelPort}`);
     console.log('  Headsets open:            ' + (ips.length ? ips.map(ip => `https://${ip}:${cfg.headsetPort}`).join('\n                            ') : '(no network found – connect this PC to Wi-Fi or Ethernet)'));

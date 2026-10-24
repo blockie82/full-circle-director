@@ -104,6 +104,11 @@ button.danger:hover:not(:disabled) { background: rgba(255, 107, 139, 0.1); }
 .uploads .bar { grid-column: 1 / -1; }
 #libFold.dropping { outline: 2px dashed var(--fc-teal); outline-offset: -6px; background: rgba(100, 223, 223, 0.06); }
 .droptip { color: var(--faint); font-size: 12px; }
+.banner { max-width: 1500px; margin: 0 auto; padding-block: 0 12px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.banner p { margin: 0; padding: 10px 14px; border-radius: 10px; border: 1px solid rgba(255, 196, 107, 0.45); background: rgba(255, 196, 107, 0.1); color: var(--ink); }
+.banner strong { color: var(--amber); }
+.uploads.bad { border: 1px solid rgba(255, 107, 139, 0.45); }
+.uploads .errs { grid-column: 1 / -1; margin: 0; padding-left: 18px; color: var(--red); font-size: 12px; max-height: 6.5em; overflow-y: auto; }
 .seq { display: inline-flex; gap: 6px; align-items: center; }
 .seq .num { color: var(--dim); font-size: 13px; white-space: nowrap; }
 
@@ -171,6 +176,7 @@ button.danger:hover:not(:disabled) { background: rgba(255, 107, 139, 0.1); }
     <span class="chip warn" id="conn">Connecting…</span>
     <div class="join"><span>Headsets open</span><code id="joinUrl">…</code><button type="button" class="quiet" id="copyUrl">Copy</button></div>
   </div>
+  <div class="banner" id="restartBanner" hidden><p><strong>Finish updating:</strong> the server is still running the previous version, so adding files won't work yet. Close the black Full Circle Director window, then double-click <b>START.bat</b> again.</p></div>
 </header>
 
 <div class="wrap">
@@ -183,7 +189,7 @@ button.danger:hover:not(:disabled) { background: rgba(255, 107, 139, 0.1); }
         </div>
         <div class="stage" id="stage">
           <canvas id="stageCanvas"></canvas>
-          <div class="empty" id="stageEmpty"><img src="/logo.svg" alt=""><span>Load a video from the library below. Each headset's view will appear here as a coloured marker.</span></div>
+          <div class="empty" id="stageEmpty"><img src="/logo.svg" alt=""><span>Load a video or image from the library below. Each headset's view will appear here as a coloured marker.</span></div>
         </div>
         <div class="stagebar">
           <label for="showFov"><input type="checkbox" id="showFov" checked> Show each headset's field of view</label>
@@ -236,7 +242,8 @@ button.danger:hover:not(:disabled) { background: rgba(255, 107, 139, 0.1); }
           <div class="uploads" id="uploads" hidden>
             <span class="t num" id="upText"></span>
             <button type="button" class="quiet" id="upCancel">Cancel</button>
-            <div class="bar"><i id="upBar"></i></div>
+            <div class="bar" id="upBarBox"><i id="upBar"></i></div>
+            <ul class="errs" id="upErrs" hidden></ul>
           </div>
           <div class="lib scroll" id="lib"></div>
         

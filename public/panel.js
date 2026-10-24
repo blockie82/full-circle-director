@@ -28,7 +28,11 @@
   fetch('/api/info').then(r => r.json()).then(info => {
     $('joinUrl').textContent = info.addresses[0] || 'No network found';
     $('joinUrl').title = info.addresses.join('\n');
-    mediaDir = info.mediaDir; libSig = ''; renderLibrary();
+    mediaDir = info.mediaDir || info.videosDir; libSig = ''; renderLibrary();
+    // an update was unzipped but the old server is still running: say so rather than failing quietly
+    const current = Array.isArray(info.features) && info.features.includes('upload');
+    $('restartBanner').hidden = current;
+    ['addFilesBtn', 'addFolderBtn'].forEach(id => { $(id).disabled = !current; });
   }).catch(() => { $('joinUrl').textContent = 'Unknown'; });
   let mediaDir = '';
   $('copyUrl').addEventListener('click', () => {
@@ -342,9 +346,10 @@
   function nextUpload() {
     const job = uploads.queue.shift();
     if (!job) {
-      uploads.xhr = null; renderUploads();
-      const msg = uploads.done + ' added' + (uploads.failed.length ? ', ' + uploads.failed.length + ' failed' : '') + (uploads.skipped ? ', ' + uploads.skipped + ' skipped (not a video or image)' : '');
-      toast(msg); uploads.skipped = 0;
+      uploads.xhr = null;
+      const msg = uploads.done + ' added' + (uploads.failed.length ? ', ' + uploads.failed.length + ' couldn\'t be added' : '') + (uploads.skipped ? ', ' + uploads.skipped + ' skipped (not a video or image)' : '');
+      if (uploads.failed.length) showUploadErrors(msg); else { renderUploads(); toast(msg); }
+      uploads.skipped = 0;
       return;
     }
     const xhr = uploads.xhr = new XMLHttpRequest();
@@ -353,22 +358,32 @@
     xhr.upload.onprogress = e => renderUploads(e.lengthComputable ? e.loaded / e.total : 0);
     xhr.onload = () => {
       if (xhr.status === 200) uploads.done++;
-      else { let m = 'failed'; try { m = JSON.parse(xhr.responseText).error; } catch {} uploads.failed.push(job.path + ': ' + m); }
+      else {
+        let m = xhr.status === 404 ? 'the server needs restarting to finish updating' : 'the server refused it (' + xhr.status + ')';
+        try { m = JSON.parse(xhr.responseText).error || m; } catch {}
+        uploads.failed.push(job.path + ': ' + m);
+      }
       nextUpload();
     };
     xhr.onerror = () => { uploads.failed.push(job.path + ': connection lost'); nextUpload(); };
     xhr.onabort = () => { uploads.xhr = null; uploads.queue = []; renderUploads(); toast('Adding files cancelled'); };
     xhr.send(job.file);
   }
+  function showUploadErrors(msg) {
+    const box = $('uploads'); box.hidden = false; box.classList.add('bad');
+    $('upText').textContent = msg; $('upBarBox').hidden = true; $('upCancel').textContent = 'Dismiss';
+    const ul = $('upErrs'); ul.textContent = ''; ul.hidden = false;
+    uploads.failed.forEach(f => { const li = document.createElement('li'); li.textContent = f; ul.append(li); });
+  }
   function renderUploads(frac) {
     const box = $('uploads');
     if (!uploads.xhr) { box.hidden = true; return; }
-    box.hidden = false;
+    box.hidden = false; box.classList.remove('bad'); $('upBarBox').hidden = false; $('upErrs').hidden = true; $('upCancel').textContent = 'Cancel';
     const n = uploads.done + uploads.failed.length + 1;
     $('upText').textContent = 'Adding ' + n + ' of ' + uploads.total + ' · ' + uploads.current.path + (frac != null ? ' · ' + Math.floor(frac * 100) + '%' : '');
     if (frac != null) $('upBar').style.width = (((n - 1) + frac) / uploads.total * 100).toFixed(1) + '%';
   }
-  $('upCancel').addEventListener('click', () => { if (uploads.xhr) uploads.xhr.abort(); });
+  $('upCancel').addEventListener('click', () => { if (uploads.xhr) uploads.xhr.abort(); else { $('uploads').hidden = true; uploads.failed = []; } });
 
   let pickTarget = null;
   function pickFiles(folder) { pickTarget = folder || null; $('addFilesInput').value = ''; $('addFilesInput').click(); }
