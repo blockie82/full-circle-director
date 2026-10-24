@@ -64,7 +64,7 @@ details summary { cursor: pointer; color: var(--dim); font-weight: 600; }
   <p class="hint" id="hint">Checking VR support…</p>
 
   <section class="files">
-    <h2>Videos on this headset</h2>
+    <h2>Videos and images on this headset</h2>
     <div id="fileList" class="files"><p class="empty">No videos in the library yet.</p></div>
     <div class="foot"><span id="storage"></span><span id="clock"></span></div>
   </section>
@@ -78,10 +78,10 @@ details summary { cursor: pointer; color: var(--dim); font-weight: 600; }
           <option value="webgl">WebGL (works everywhere)</option>
         </select>
       </label>
-      <label class="field" for="localFile">Play a file already on this headset
-        <input type="file" id="localFile" accept="video/*,.mp4,.mkv,.webm,.mov">
+      <label class="field" for="localFile">Use a file already on this headset
+        <input type="file" id="localFile" accept="video/*,image/*,.mp4,.mkv,.webm,.mov,.jpg,.jpeg,.png,.webp">
       </label>
-      <p class="empty">Pick a file with the same name as a library video to use it instead of downloading. This lasts until the page is reloaded.</p>
+      <p class="empty">Pick a file with the same name as one in the library to use it instead of downloading. This lasts until the page is reloaded.</p>
     </div>
   </details>
 </main>

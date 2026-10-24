@@ -57,7 +57,7 @@ th { color: var(--dim); font-size: 12px; text-transform: uppercase; letter-spaci
 
   <h2><span>Each session</span>Run a showing</h2>
   <ol>
-    <li>Copy videos into the <code>videos</code> folder. They appear in the panel's Library within a second or two.</li>
+    <li>Copy videos and 360° images into the <code>videos</code> folder. They appear in the panel's Library within a second or two. Images can be JPG, PNG or WebP, and use the same naming as videos for 180° and 3D.</li>
     <li>Check each video's projection and stereo layout in the Library and correct them if the guess is wrong.</li>
     <li>Click <strong>Send to headsets</strong>. Each headset copies the video into its own storage, so playback never depends on Wi-Fi speed. You only do this once per video.</li>
     <li>Click <strong>Load</strong>. The panel shows "Ready on 8 of 8 headsets" when everyone has it.</li>
@@ -74,6 +74,7 @@ th { color: var(--dim); font-size: 12px; text-transform: uppercase; letter-spaci
     <tr><td>8K 360°</td><td>MP4, H.265 (HEVC), 30 fps. 8K at 60 fps is at the limit of what a Quest 3 can decode.</td></tr>
     <tr><td>3D</td><td>Top-bottom or side-by-side in one file. Add <code>_TB</code> or <code>_LR</code> to the file name and the panel picks it up.</td></tr>
     <tr><td>180°</td><td>Add <code>_180</code> to the file name.</td></tr>
+    <tr><td>360° images</td><td>JPG, PNG or WebP, 2:1 for 360° (for example 8192 × 4096). Very large images are scaled down to what the headset can display.</td></tr>
     <tr><td>Flat video</td><td>Add <code>_flat</code> to the file name. Screen distance and width are set in the panel.</td></tr>
   </table></div>
   <p>If you replace a file with a new version of the same name, headsets see that it changed and need it sending again.</p>

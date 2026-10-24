@@ -27,6 +27,32 @@
     const onVF = () => { presented++; video.requestVideoFrameCallback(onVF); };
     video.requestVideoFrameCallback(onVF);
   }
+  // ------------------------------------------------------------ still images
+  const image = new Image();
+  let imgSource = null, imageReady = false;          // decoded picture, scaled to fit the graphics chip's limit
+  const isImageItem = it => !!it && it.kind === 'image';
+  function mediaSize() {
+    return isImageItem(itemNow()) && imgSource ? { w: imgSource.width, h: imgSource.height } : { w: video.videoWidth || 16, h: video.videoHeight || 9 };
+  }
+  async function loadImage(url, token) {
+    imageReady = false;
+    try {
+      image.src = url; await image.decode();
+      if (token !== sourceToken) return;
+      const max = Math.min(renderer.capabilities.maxTextureSize || 8192, 16384);
+      const k = Math.min(1, max / Math.max(image.naturalWidth, image.naturalHeight));
+      if (k < 1) {
+        const c = document.createElement('canvas'); c.width = Math.round(image.naturalWidth * k); c.height = Math.round(image.naturalHeight * k);
+        c.getContext('2d').drawImage(image, 0, 0, c.width, c.height); imgSource = c;
+      } else imgSource = image;
+      imgTex.image = imgSource; imgTex.needsUpdate = true;
+      imageReady = true; imageLayerDirty = true;
+      rebuildView(true); updateUI(); sendStatus();
+    } catch (e) {
+      if (token === sourceToken) setHint('This headset couldn\'t open the image.', true);
+    }
+  }
+
   let soundBlocked = false;
   function playVideo() {
     const p = video.play();
@@ -163,7 +189,7 @@
   $('localFile').addEventListener('change', () => {
     const f = $('localFile').files[0]; if (!f) return;
     const it = libItem(f.name);
-    if (!it) { setHint('"' + f.name + '" isn\'t in the library on the PC. Pick a file with the same name.', true); return; }
+    if (!it) { setHint('"' + f.name + '" isn\'t in the library on the PC. Pick a file with the same name as one in the library.', true); return; }
     manual[it.id] = f; setHint('Using "' + f.name + '" from this headset.'); renderFiles(); ensureSource();
   });
 
@@ -187,13 +213,16 @@
       if (token !== sourceToken) { if (url && url.startsWith('blob:')) URL.revokeObjectURL(url); return; }
       if (current.url && current.url.startsWith('blob:')) URL.revokeObjectURL(current.url);
       Object.assign(current, { id: it ? it.id : null, kind, sig, url });
-      if (url) { video.src = url; video.load(); } else { video.pause(); video.removeAttribute('src'); video.load(); }
+      imageReady = false;
+      if (url && isImageItem(it)) { video.pause(); video.removeAttribute('src'); video.load(); loadImage(url, token); }
+      else if (url) { video.src = url; video.load(); }
+      else { video.pause(); video.removeAttribute('src'); video.load(); }
     }
     rebuildView(); updateUI();
   }
   video.addEventListener('loadedmetadata', () => { rebuildView(true); syncTick(true); updateUI(); });
   video.addEventListener('error', () => {
-    if (!current.url) return;
+    if (!current.url || isImageItem(itemNow())) return;
     setHint('This headset couldn\'t play the video (' + ((video.error && video.error.code === 4) ? 'format not supported' : 'decode error') + ').', true);
   });
 
@@ -202,7 +231,7 @@
   const SEEK_LEAD = 0.15; // seconds to aim ahead when jumping, to cover the time a seek takes
   function syncTick(force) {
     const s = link.state;
-    if (!s || !current.kind || video.readyState < 1) return;
+    if (!s || !current.kind || isImageItem(itemNow()) || video.readyState < 1) return;
     const t = link.serverNow();
     const dur = video.duration || Infinity;
     const holdAt = p => {
@@ -241,6 +270,9 @@
   const content = new THREE.Group(); scene.add(content);
   const tex = new THREE.VideoTexture(video);
   tex.encoding = THREE.sRGBEncoding; tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false;
+  const imgTex = new THREE.Texture();
+  imgTex.encoding = THREE.sRGBEncoding; imgTex.minFilter = THREE.LinearMipmapLinearFilter; imgTex.magFilter = THREE.LinearFilter;
+  imgTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
   let meshes = [];
 
   // In WebGL mode a panel says what's happening when no video is showing
@@ -258,7 +290,7 @@
 
   const itemNow = () => (current.kind ? libItem(current.id) : null);
   function eyeAspect(it) {
-    let w = video.videoWidth || 16, h = video.videoHeight || 9;
+    let { w, h } = mediaSize();
     if (it.layout === 'sbs') w /= 2; if (it.layout === 'tb') h /= 2;
     return w / h;
   }
@@ -275,8 +307,10 @@
   }
   let viewSig = '';
   function rebuildView(forceAspect) {
-    const it = itemNow();
-    const sig = it ? [it.id, it.shape, it.layout, current.kind, forceAspect ? video.videoWidth + 'x' + video.videoHeight : ''].join('|') : 'none';
+    const loaded = itemNow();
+    const it = loaded && (!isImageItem(loaded) || imageReady) ? loaded : null;   // an image shows once it has decoded
+    const ms = mediaSize();
+    const sig = it ? [it.id, it.shape, it.layout, current.kind, forceAspect ? ms.w + 'x' + ms.h : ''].join('|') : 'none';
     if (sig === viewSig && !forceAspect) return;
     viewSig = sig;
     meshes.forEach(m => { content.remove(m); m.geometry.dispose(); m.material.dispose(); }); meshes = [];
@@ -286,12 +320,12 @@
         const g = geometryFor(it);
         if (it.layout === 'tb') remapUV(g, 1, 0, 0.5, eye === 0 ? 0.5 : 0);
         if (it.layout === 'sbs') remapUV(g, 0.5, eye === 0 ? 0 : 0.5, 1, 0);
-        const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide }));
+        const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ map: isImageItem(it) ? imgTex : tex, side: THREE.DoubleSide }));
         m.layers.set(layer); content.add(m); meshes.push(m);
       });
     }
     waitPanel.visible = !it;
-    drawWait(link.state && link.state.videoId ? 'Video not on this headset yet' : 'Waiting for the operator');
+    drawWait(link.state && link.state.videoId ? (loaded ? 'Loading…' : 'Not on this headset yet') : 'Waiting for the operator');
     applyScreen();
     updateMediaLayer();
   }
@@ -325,12 +359,37 @@
   function updateMediaLayer() {
     if (!layerSession) return;
     const it = itemNow();
-    const sig = it ? [it.id, it.shape, it.layout, current.kind].join('|') : '';
+    const sig = it ? [it.id, it.shape, it.layout, current.kind, imageReady].join('|') : '';
     if (sig === mediaSig) return;
     mediaSig = sig;
     if (!it) return; // keep showing the last picture rather than a black void
     const layout = { mono: 'mono', tb: 'stereo-top-bottom', sbs: 'stereo-left-right' }[it.layout];
     const old = mediaLayer;
+    if (isImageItem(it)) {
+      if (!imageReady) { mediaSig = ''; return; }
+      if (!glBinding) { setHint('Images need the WebGL renderer on this headset. Choose it under Settings and enter VR again.', true); return; }
+      // A still picture can't use the video layer, so it is copied once into a static layer the compositor keeps showing
+      const { w, h } = mediaSize();
+      let ew = it.layout === 'sbs' ? w / 2 : w, eh = it.layout === 'tb' ? h / 2 : h;
+      const k = Math.min(1, 8192 / Math.max(ew, eh)); ew = Math.round(ew * k); eh = Math.round(eh * k);
+      try {
+        if (it.shape === 'flat') {
+          const sc = screenCfg();
+          mediaLayer = glBinding.createQuadLayer({ space: mediaSpace, layout, viewPixelWidth: ew, viewPixelHeight: eh, isStatic: true, width: sc.width, height: sc.width / eyeAspect(it) });
+        } else {
+          mediaLayer = glBinding.createEquirectLayer({
+            space: mediaSpace, layout, viewPixelWidth: ew, viewPixelHeight: eh, isStatic: true,
+            centralHorizontalAngle: it.shape === '180' ? Math.PI : Math.PI * 2,
+            upperVerticalAngle: Math.PI / 2, lowerVerticalAngle: -Math.PI / 2
+          });
+        }
+      } catch (e) { mediaSig = ''; setHint('This headset couldn\'t show the image in VR (' + e.message + '). Try the WebGL renderer under Settings.', true); return; }
+      imageLayerDirty = true;
+      updateMediaTransform();
+      layerSession.updateRenderState({ layers: [mediaLayer] });
+      if (old && old.destroy) try { old.destroy(); } catch {}
+      return;
+    }
     if (it.shape === 'flat') {
       const sc = screenCfg();
       mediaLayer = mediaBinding.createQuadLayer(video, { space: mediaSpace, layout, width: sc.width, height: sc.width / eyeAspect(it) });
@@ -344,6 +403,42 @@
     updateMediaTransform();
     layerSession.updateRenderState({ layers: [mediaLayer] });
     if (old && old.destroy) try { old.destroy(); } catch {}
+  }
+
+  // Copy the picture into the static layer, one eye at a time. The layer only needs this
+  // when it is first made, or if the headset says it has lost the contents.
+  let glBinding = null, imageLayerDirty = false, imgGL = null;
+  function drawImageLayer(frame) {
+    const gl = renderer.getContext(), it = itemNow();
+    if (!glBinding || !imgSource || !isImageItem(it) || typeof WebGL2RenderingContext === 'undefined' || !(gl instanceof WebGL2RenderingContext)) return;
+    if (!imgGL || imgGL.src !== imgSource) {
+      if (imgGL) { gl.deleteTexture(imgGL.tex); gl.deleteFramebuffer(imgGL.read); gl.deleteFramebuffer(imgGL.draw); }
+      const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true); gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, imgSource);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      const read = gl.createFramebuffer();
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, read);
+      gl.framebufferTexture2D(gl.READ_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+      imgGL = { tex: t, read, draw: gl.createFramebuffer(), src: imgSource, w: imgSource.width, h: imgSource.height };
+    }
+    const W = imgGL.w, H = imgGL.h;
+    // source rectangles in GL coordinates (the picture was flipped on upload, so its top is at y = H)
+    const eyes = it.layout === 'mono' ? [[null, 0, 0, W, H]]
+      : it.layout === 'sbs' ? [['left', 0, 0, W / 2, H], ['right', W / 2, 0, W, H]]
+      : [['left', 0, H / 2, W, H], ['right', 0, 0, W, H / 2]];   // top half is the left eye
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, imgGL.read);
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, imgGL.draw);
+    for (const [eye, x0, y0, x1, y1] of eyes) {
+      const sub = eye ? glBinding.getSubImage(mediaLayer, frame, eye) : glBinding.getSubImage(mediaLayer, frame);
+      gl.framebufferTexture2D(gl.DRAW_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, sub.colorTexture, 0);
+      const v = sub.viewport;
+      gl.blitFramebuffer(Math.round(x0), Math.round(y0), Math.round(x1), Math.round(y1), v.x, v.y, v.x + v.width, v.y + v.height, gl.COLOR_BUFFER_BIT, gl.LINEAR);
+    }
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null); gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
+    if (renderer.resetState) renderer.resetState();
+    imageLayerDirty = false;
   }
 
   // ------------------------------------------------------------ head direction
@@ -373,7 +468,7 @@
   async function checkStorage() {
     if (!navigator.storage || !navigator.storage.estimate) return;
     try { const e = await navigator.storage.estimate(); storageFree = e.quota - e.usage; } catch {}
-    $('storage').textContent = storageFree != null ? FC.fmtSize(storageFree) + ' free for videos' : '';
+    $('storage').textContent = storageFree != null ? FC.fmtSize(storageFree) + ' free for videos and images' : '';
   }
   function sendStatus() {
     const q = video.getVideoPlaybackQuality ? video.getVideoPlaybackQuality() : null;
@@ -384,8 +479,9 @@
     });
     link.send({ t: 'status', status: {
       inVR: !!session, renderer: session ? (layerSession ? 'layer' : 'webgl') : null,
-      videoId: current.id, source: current.kind, ready: !!current.kind && video.readyState >= 2,
-      playing: !video.paused, time: video.currentTime || 0, drift: Math.round(drift * 1000), rate: video.playbackRate,
+      videoId: current.id, source: current.kind,
+      ready: !!current.kind && (isImageItem(itemNow()) ? imageReady : video.readyState >= 2),
+      playing: !video.paused && !isImageItem(itemNow()), time: video.currentTime || 0, drift: Math.round(drift * 1000), rate: video.playbackRate,
       fps: video.paused ? null : Math.round(fps), dropped: q ? q.droppedVideoFrames : null,
       muted: video.muted, battery: battery ? Math.round(battery.level * 100) : null, charging: battery ? battery.charging : null,
       storageFree, files, sync: link.rtt != null ? Math.round(link.rtt / 2) : null,
@@ -403,7 +499,7 @@
   function updateUI() {
     const s = link.state, it = s && s.videoId ? libItem(s.videoId) : null;
     $('nowName').textContent = it ? it.id : 'Waiting for the operator';
-    $('nowFormat').textContent = it ? SHAPES[it.shape] + ' · ' + LAYOUTS[it.layout] + ' · ' + FC.fmtSize(it.size) : '';
+    $('nowFormat').textContent = it ? (it.kind === 'image' ? 'Image · ' : '') + SHAPES[it.shape] + ' · ' + LAYOUTS[it.layout] + ' · ' + FC.fmtSize(it.size) : '';
     const chip = $('nowReady');
     chip.hidden = !it;
     if (it) {
@@ -423,7 +519,7 @@
     if (!hint) {
       if (!window.isSecureContext) hint = 'Open this page with https:// so VR can start.';
       else if (!vrSupported) hint = vrChecked ? 'VR isn\'t available in this browser.' : 'Checking VR support…';
-      else if (!current.kind && $('engine').value === 'layer') hint = it ? 'Download this video below, or ask the operator to send it.' : 'Enter VR becomes available once the operator loads a video.';
+      else if (!current.kind && $('engine').value === 'layer') hint = it ? 'Download it below, or ask the operator to send it.' : 'Enter VR becomes available once the operator loads a video or image.';
       else hint = 'Put the headset on and press Enter VR. The operator controls playback.';
     }
     $('hint').textContent = hint; $('hint').className = 'hint' + (hintBad ? ' bad' : '');
@@ -446,7 +542,7 @@
       const info = document.createElement('div');
       const n = document.createElement('div'); n.className = 'n'; n.textContent = it.id;
       const m = document.createElement('div'); m.className = 'm';
-      m.textContent = FC.fmtSize(it.size) + ' · ' + SHAPES[it.shape] + ' · ' + LAYOUTS[it.layout] + ' · ' + status;
+      m.textContent = (it.kind === 'image' ? 'Image · ' : '') + FC.fmtSize(it.size) + ' · ' + SHAPES[it.shape] + ' · ' + LAYOUTS[it.layout] + ' · ' + status;
       if (cls) m.style.color = cls === 'ok' ? 'var(--green)' : 'var(--red)';
       info.append(n, m);
       const b = document.createElement('button'); b.type = 'button';
@@ -472,7 +568,7 @@
   } else { vrChecked = true; }
 
   function onSessionEnd() {
-    session = layerSession = mediaLayer = mediaBinding = mediaSpace = null; mediaSig = ''; looking = false;
+    session = layerSession = mediaLayer = mediaBinding = mediaSpace = glBinding = null; mediaSig = ''; looking = false;
     updateUI(); sendStatus();
   }
 
@@ -481,6 +577,11 @@
     session = layerSession = s;
     mediaSpace = await s.requestReferenceSpace('local');
     mediaBinding = new XRMediaBinding(s);
+    try {
+      const gl = renderer.getContext();
+      if (gl.makeXRCompatible) await gl.makeXRCompatible();
+      glBinding = new XRWebGLBinding(s, gl);
+    } catch (e) { glBinding = null; }
     mediaSig = ''; updateMediaLayer();
     s.addEventListener('end', onSessionEnd);
     s.addEventListener('squeezestart', () => recenter(0));   // grip recentres for this wearer
@@ -488,6 +589,9 @@
       if (session !== s) return;
       const pose = frame.getViewerPose(mediaSpace);
       if (pose) setLookFromQuat(pose.transform.orientation);
+      if (mediaLayer && isImageItem(itemNow()) && (imageLayerDirty || mediaLayer.needsRedraw)) {
+        try { drawImageLayer(frame); } catch (e) { imageLayerDirty = false; setHint('Couldn\'t draw the image: ' + e.message, true); }
+      }
       syncTick(); telemetry();
       s.requestAnimationFrame(onFrame);
     };

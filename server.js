@@ -4,7 +4,7 @@
  *
  *  - Headsets join at  https://<this-PC's-IP>:8443   (self-signed certificate, accept once per headset)
  *  - The control panel runs at  http://localhost:8080  (this PC only)
- *  - Put video files in the "videos" folder next to this file.
+ *  - Put video and image files in the "videos" folder next to this file.
  *
  * The server holds the one true playback state. Every headset keeps its own
  * clock offset to the server and schedules play/seek against server time,
@@ -64,6 +64,7 @@ function certificate() {
 
 // ---------------------------------------------------------------- video library
 const VIDEO_EXT = ['.mp4', '.m4v', '.webm', '.mkv', '.mov'];
+const IMAGE_EXT = ['.jpg', '.jpeg', '.png', '.webp'];
 let meta = readJSON(META_FILE, {});       // { filename: { shape, layout, duration } }
 let library = [];
 
@@ -80,11 +81,12 @@ function guessFormat(name) {
 function scanLibrary() {
   fs.mkdirSync(VIDEOS, { recursive: true });
   library = fs.readdirSync(VIDEOS)
-    .filter(f => VIDEO_EXT.includes(path.extname(f).toLowerCase()))
+    .filter(f => [...VIDEO_EXT, ...IMAGE_EXT].includes(path.extname(f).toLowerCase()))
     .map(f => {
       const st = fs.statSync(path.join(VIDEOS, f));
       const m = Object.assign(guessFormat(f), meta[f] || {});
-      return { id: f, size: st.size, shape: m.shape, layout: m.layout, duration: m.duration || null };
+      const kind = IMAGE_EXT.includes(path.extname(f).toLowerCase()) ? 'image' : 'video';
+      return { id: f, kind, size: st.size, shape: m.shape, layout: m.layout, duration: kind === 'video' ? (m.duration || null) : null };
     })
     .sort((a, b) => a.id.localeCompare(b.id));
   return library;
@@ -104,6 +106,7 @@ function watchVideos() {
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.json': 'application/json', '.png': 'image/png', '.txt': 'text/plain; charset=utf-8',
+  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
   '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.webm': 'video/webm', '.mkv': 'video/x-matroska', '.mov': 'video/quicktime'
 };
 
@@ -164,6 +167,7 @@ let state = {
 };
 const expectedPos = (s, t = now()) => s.playing ? s.position + Math.max(0, t - s.at) / 1000 : s.position;
 const durationOf = id => (library.find(v => v.id === id) || {}).duration || null;
+const isImage = id => (library.find(v => v.id === id) || {}).kind === 'image';
 
 function setState(patch) {
   state = { ...state, ...patch, seq: state.seq + 1 };
@@ -173,6 +177,8 @@ function setState(patch) {
 function command(m) {
   const t = now(), pos = expectedPos(state, t);
   const lead = cfg.startLeadMs;
+  // play, pause and seeking mean nothing for a still image
+  if (['play', 'pause', 'seek', 'skip'].includes(m.op) && isImage(state.videoId)) return;
   const clamp = p => { const d = durationOf(state.videoId); return Math.max(0, d ? Math.min(p, d - 0.05) : p); };
   switch (m.op) {
     case 'load':
@@ -350,7 +356,7 @@ panelServer.listen(cfg.panelPort, '127.0.0.1', () => {
     console.log(`  Control panel (this PC):  http://localhost:${cfg.panelPort}`);
     console.log('  Headsets open:            ' + (ips.length ? ips.map(ip => `https://${ip}:${cfg.headsetPort}`).join('\n                            ') : '(no network found – connect this PC to Wi-Fi or Ethernet)'));
     console.log(`  Videos folder:            ${VIDEOS}`);
-    console.log(`  Videos found:             ${library.length}`);
+    console.log(`  Found:                    ${library.filter(v => v.kind === 'video').length} videos, ${library.filter(v => v.kind === 'image').length} images`);
     console.log('');
     console.log('  Leave this window open while you use the system. Close it to stop the server.');
     console.log('');

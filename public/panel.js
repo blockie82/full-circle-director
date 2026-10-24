@@ -43,13 +43,21 @@
 
   // ------------------------------------------------------------ preview video (muted copy on this PC, kept in step)
   const pv = $('pv');
-  let pvId = null, pvFailed = false;
+  const pimg = new Image();           // preview for still images
+  let pvId = null, pvFailed = false, pimgReady = false;
+  const curIsImage = () => { const it = link.state && libItem(link.state.videoId); return !!it && it.kind === 'image'; };
   function onState() {
     const s = link.state; if (!s) return;
     const it = s.videoId ? libItem(s.videoId) : null;
     if ((it ? it.id : null) !== pvId) {
-      pvId = it ? it.id : null; pvFailed = false;
-      if (it) { pv.src = '/videos/' + encodeURIComponent(it.id); pv.load(); } else { pv.removeAttribute('src'); pv.load(); }
+      pvId = it ? it.id : null; pvFailed = false; pimgReady = false;
+      const url = it ? '/videos/' + encodeURIComponent(it.id) : null;
+      if (it && it.kind === 'image') {
+        pv.removeAttribute('src'); pv.load();
+        const id = it.id; pimg.src = url;
+        pimg.decode().then(() => { if (pvId === id) { pimgReady = true; eyesSig = ''; renderNow(); } }, () => { if (pvId === id) { pvFailed = true; renderNow(); } });
+      } else if (it) { pv.src = url; pv.load(); }
+      else { pv.removeAttribute('src'); pv.load(); }
       eyesSig = ''; target = null; renderTarget();
     }
     $('streamOk').checked = !!s.stream;
@@ -63,11 +71,11 @@
     if (pvId && isFinite(pv.duration)) cmd('duration', { id: pvId, duration: pv.duration });
     eyesSig = ''; renderNow();
   });
-  pv.addEventListener('error', () => { if (pvId) { pvFailed = true; renderNow(); } });
+  pv.addEventListener('error', () => { if (pvId && !curIsImage() && pv.getAttribute('src')) { pvFailed = true; renderNow(); } });
 
   let lastPvCheck = 0;
   function pvSync(force) {
-    const s = link.state; if (!s || !pvId || pv.readyState < 1) return;
+    const s = link.state; if (!s || !pvId || curIsImage() || pv.readyState < 1) return;
     const t = link.serverNow(), exp = link.expected(t), dur = pv.duration || Infinity;
     const hold = p => { if (!pv.paused) pv.pause(); pv.playbackRate = 1; if (!pv.seeking && Math.abs(pv.currentTime - Math.min(p, dur)) > 0.05) pv.currentTime = Math.min(p, dur); };
     if (!s.playing || t < s.at) return hold(s.position);
@@ -85,12 +93,14 @@
   function renderNow() {
     const s = link.state, it = s && s.videoId ? libItem(s.videoId) : null;
     $('nowName').textContent = it ? it.id : 'No video loaded';
-    $('nowFmt').textContent = it ? SHAPES[it.shape] + ' · ' + LAYOUTS[it.layout] : '';
+    $('nowFmt').textContent = it ? (it.kind === 'image' ? 'Image · ' : '') + SHAPES[it.shape] + ' · ' + LAYOUTS[it.layout] : '';
     $('stageEmpty').hidden = !!it;
     const pickable = !!it && it.shape !== 'flat';
     $('stage').classList.toggle('pickable', pickable); $('pickHint').hidden = !pickable;
-    $('previewNote').textContent = it && pvFailed ? 'This PC can\'t preview this video format. Headset markers are shown on a grid instead.' : '';
-    ['playBtn', 'stopBtn', 'backBtn', 'fwdBtn', 'seek'].forEach(id => { $(id).disabled = !it; });
+    $('previewNote').textContent = it && pvFailed ? 'This PC can\'t preview this format. Headset markers are shown on a grid instead.' : '';
+    const still = !!it && it.kind === 'image';
+    ['playBtn', 'stopBtn', 'backBtn', 'fwdBtn', 'seek'].forEach(id => { $(id).disabled = !it || still; });
+    $('wallPlay').disabled = !it || still;
     const playing = !!(s && s.playing);
     $('playBtn').setAttribute('aria-label', playing ? 'Pause' : 'Play');
     $('wallIcon').innerHTML = $('playIcon').innerHTML = playing ? '<path d="M6 4h4.5v16H6zM13.5 4H18v16h-4.5z"/>' : '<path d="M7 4.5v15l13-7.5z"/>';
@@ -109,6 +119,11 @@
   function tickTransport() {
     const s = link.state;
     if (!s) return;
+    if (curIsImage()) {
+      $('tNow').textContent = '–'; $('tDur').textContent = '–'; $('wallTime').textContent = 'Image';
+      $('seek').value = 0; $('playState').textContent = 'Showing image'; $('playState').className = 'chip live';
+      return;
+    }
     const dur = durationNow(), pos = Math.min(link.expected(), dur || Infinity);
     $('tNow').textContent = fmtTime(pos); $('tDur').textContent = fmtTime(dur);
     $('wallTime').textContent = fmtTime(pos) + ' / ' + fmtTime(dur);
@@ -167,8 +182,9 @@
     const s = link.state;
     const cur = s && s.videoId;
     $('libSum').textContent = library.length
-      ? library.length + (library.length === 1 ? ' video' : ' videos') + (cur ? ' · Loaded: ' + cur : ' · nothing loaded')
-      : 'No videos yet';
+      ? [[library.filter(v => v.kind !== 'image').length, 'video'], [library.filter(v => v.kind === 'image').length, 'image']]
+          .filter(([n]) => n).map(([n, w]) => n + ' ' + w + (n === 1 ? '' : 's')).join(', ') + (cur ? ' · Loaded: ' + cur : ' · nothing loaded')
+      : 'Nothing yet';
     const sig = JSON.stringify([library, cur, openVid, headsets.map(h => [h.online, h.status && h.status.files])]);
     if (sig === libSig) return;
     const box = $('lib');
@@ -177,7 +193,7 @@
     const focusId = document.activeElement && box.contains(document.activeElement) ? document.activeElement.dataset.key : null;
     box.textContent = '';
     if (!library.length) {
-      box.innerHTML = '<p class="empty-lib">No videos yet. Copy video files into <code></code> and they\'ll appear here automatically.</p>';
+      box.innerHTML = '<p class="empty-lib">Nothing here yet. Copy videos or 360° images (JPG, PNG or WebP) into <code></code> and they\'ll appear here automatically.</p>';
       box.querySelector('code').textContent = videosDir || 'the videos folder';
       return;
     }
@@ -193,7 +209,7 @@
         const el = openVid && $('lib').querySelector('.vid.open'); if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
       };
       const txt = mk('span', 'txt');
-      txt.append(mk('span', 'n', it.id), mk('span', 'm num', [SHAPES[it.shape] + ' ' + LAYOUTS[it.layout], fmtSize(it.size), it.duration ? fmtTime(it.duration) : null,
+      txt.append(mk('span', 'n', it.id), mk('span', 'm num', [(it.kind === 'image' ? 'Image · ' : '') + SHAPES[it.shape] + ' ' + LAYOUTS[it.layout], fmtSize(it.size), it.duration ? fmtTime(it.duration) : null,
         r.total ? r.done + ' of ' + r.total + ' ready' + (r.active ? ', ' + r.active + ' downloading' : '') : null].filter(Boolean).join(' · ')));
       tog.append(mk('span', 'ar'), txt);
       const acts = mk('div', 'acts');
@@ -264,7 +280,7 @@
       const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = h.name;
       const chip = document.createElement('span');
       if (!h.online) { chip.className = 'chip'; chip.textContent = 'Offline'; }
-      else if (s && s.videoId && !(st.videoId === s.videoId && st.source)) { chip.className = 'chip bad'; chip.textContent = 'Video missing'; }
+      else if (s && s.videoId && !(st.videoId === s.videoId && st.source)) { chip.className = 'chip bad'; chip.textContent = 'Not on headset'; }
       else if (st.inVR) { chip.className = 'chip live'; chip.textContent = 'In VR'; }
       else { chip.className = 'chip ok'; chip.textContent = 'Not in VR yet'; }
       const meta = document.createElement('div'); meta.className = 'meta num';
@@ -328,14 +344,15 @@
   const fctx = frame.getContext('2d');
   const stage = $('stageCanvas'), sctx = stage.getContext('2d');
   function grabFrame(it) {
-    if (pvFailed || pv.readyState < 2 || !pv.videoWidth) return false;
-    let sw = pv.videoWidth, sh = pv.videoHeight;
+    const src = it.kind === 'image' ? pimg : pv;
+    if (pvFailed || (it.kind === 'image' ? !pimgReady : (pv.readyState < 2 || !pv.videoWidth))) return false;
+    let sw = it.kind === 'image' ? pimg.naturalWidth : pv.videoWidth, sh = it.kind === 'image' ? pimg.naturalHeight : pv.videoHeight;
     if (it.layout === 'sbs') sw /= 2; if (it.layout === 'tb') sh /= 2;
     const ar = sw / sh;
     const fw = it.shape === 'flat' ? 1600 : 2048;
     const fh = it.shape === 'flat' ? Math.round(1600 / ar) : it.shape === '180' ? 2048 : 1024;
     if (frame.width !== fw || frame.height !== fh) { frame.width = fw; frame.height = fh; }
-    fctx.drawImage(pv, 0, 0, sw, sh, 0, 0, frame.width, frame.height);
+    fctx.drawImage(src, 0, 0, sw, sh, 0, 0, frame.width, frame.height);
     return true;
   }
   // Map a look direction (degrees) to a point on the stage, 0..1
@@ -490,7 +507,7 @@
     if (!hs) msg = 'Select a headset to see roughly what its wearer sees.';
     else if (!hs.online) msg = hs.name + ' is offline.';
     else if (!it) msg = 'No video is loaded.';
-    else if (pvFailed) msg = 'This PC can\'t preview this video format.';
+    else if (pvFailed) msg = 'This PC can\'t preview this format.';
     else if (!hs.look || hs.look.y == null || Date.now() - hs.look.at > 1500) msg = hs.name + ' isn\'t in VR right now.';
     $('eyesMsg').textContent = msg; $('eyesMsg').hidden = !msg; document.querySelector('#eyesBox .cross').hidden = !!msg;
     if (msg) { er.clear(); return; }
@@ -561,7 +578,7 @@
       const live = h.look && h.look.y != null && now - h.look.at < 1500;
       let msg = '';
       if (!it) msg = 'No video loaded';
-      else if (!(st.videoId === it.id && st.source)) msg = 'Video not on this headset';
+      else if (!(st.videoId === it.id && st.source)) msg = 'Not on this headset';
       else if (pvFailed) msg = 'This PC can\'t preview this format';
       else if (!live) msg = 'Not in VR';
       el.querySelector('.msg').textContent = msg;
