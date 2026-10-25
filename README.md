@@ -36,6 +36,12 @@ Settings such as ports and the media folder are in `config.json`.
 
 Fonts: Manrope, under the SIL Open Font License (`public/fonts/Manrope-OFL.txt`).
 
+## Licence
+
+Free to use, with no subscription or licence fees. Released under the [MIT License](LICENSE): you can use, copy, change and share it, including commercially, as long as the copyright notice is kept.
+
+The parts it is built on have their own open-source licences: three.js, ws and selfsigned (MIT), node-forge (BSD), and the Manrope font (SIL Open Font License, see `public/fonts/Manrope-OFL.txt`).
+
 ## Credits
 
 Created by [blockie82](https://github.com/blockie82) for Full Circle Immersive, built with Claude.
