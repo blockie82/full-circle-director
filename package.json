@@ -1,6 +1,6 @@
 {
   "name": "full-circle-director",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "private": true,
   "description": "Full Circle Director by Full Circle Immersive: synced 360/3D video playback across Quest headsets on a local network.",
   "main": "server.js",
@@ -15,5 +15,8 @@
   "engines": {
     "node": ">=18"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "optionalDependencies": {
+    "ffmpeg-static": "5.2.0"
+  }
 }

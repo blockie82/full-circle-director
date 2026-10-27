@@ -81,6 +81,15 @@ th { color: var(--dim); font-size: 12px; text-transform: uppercase; letter-spaci
   </table></div>
   <p>If you replace a file with a new version of the same name, headsets see that it changed and need it sending again.</p>
 
+  <h2>Preview copies for slower PCs</h2>
+  <p>Headsets always play the full-resolution original. The control panel only needs a picture to show where people are looking, so for heavy videos (wider than 4K, or in a format such as H.265 that many PCs struggle with) Full Circle Director makes a light 1080p copy in the background and previews that instead. You'll see "Making preview copy" and then "Preview copy ready" in the library.</p>
+  <ul>
+    <li>It happens once per video. On a slow laptop an 8K video can take longer to convert than it lasts, so add videos well before a session.</li>
+    <li>Copies are kept in the <code>proxies</code> folder. You can make them on a faster PC and copy that folder across, as long as the video files are identical.</li>
+    <li>Open a video in the library to remake its copy, or to make one for a video that wasn't picked automatically.</li>
+    <li>The first time you run this version, <code>START.bat</code> downloads the free ffmpeg tool that makes the copies. It needs internet once.</li>
+  </ul>
+
   <h2>If something isn't working</h2>
   <ul>
     <li><strong>Headset can't open the address.</strong> Check it's on the same Wi-Fi as the PC, the black server window is open, and Windows Firewall allows Node.js on Private networks.</li>

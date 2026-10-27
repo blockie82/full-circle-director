@@ -3,6 +3,7 @@ node_modules/
 
 # Created on each PC – never commit these
 cert/
+proxies/
 library.json
 headsets.json
 

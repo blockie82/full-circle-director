@@ -48,7 +48,10 @@
   // ------------------------------------------------------------ preview video (muted copy on this PC, kept in step)
   const pv = $('pv');
   const pimg = new Image();           // preview for still images
-  let pvId = null, pvFailed = false, pimgReady = false;
+  let pvId = null, pvFailed = false, pimgReady = false, pvUrl = null;
+  // the panel previews a light copy of heavy videos when one is ready; headsets always play the original
+  const previewUrl = it => it.proxy && it.proxy.state === 'ready'
+    ? '/proxy/' + encodeURIComponent(it.id) + '?k=' + it.proxy.key : '/videos/' + encodeURIComponent(it.id);
   const curIsImage = () => { const it = link.state && libItem(link.state.videoId); return !!it && it.kind === 'image'; };
   function onState() {
     const s = link.state; if (!s) return;
@@ -60,9 +63,12 @@
         pv.removeAttribute('src'); pv.load();
         const id = it.id; pimg.src = url;
         pimg.decode().then(() => { if (pvId === id) { pimgReady = true; eyesSig = ''; renderNow(); } }, () => { if (pvId === id) { pvFailed = true; renderNow(); } });
-      } else if (it) { pv.src = url; pv.load(); }
-      else { pv.removeAttribute('src'); pv.load(); }
+      } else if (it) { pvUrl = previewUrl(it); pv.src = pvUrl; pv.load(); }
+      else { pvUrl = null; pv.removeAttribute('src'); pv.load(); }
       eyesSig = ''; target = null; renderTarget();
+    } else if (it && it.kind === 'video' && previewUrl(it) !== pvUrl) {
+      // a preview copy has just finished: switch to it and pick up at the same moment
+      pvUrl = previewUrl(it); pvFailed = false; pv.src = pvUrl; pv.load();
     }
     $('streamOk').checked = !!s.stream;
     const sc = s.screen || { dist: 12, width: 12 };
@@ -101,7 +107,12 @@
     $('stageEmpty').hidden = !!it;
     const pickable = !!it && it.shape !== 'flat';
     $('stage').classList.toggle('pickable', pickable); $('pickHint').hidden = !pickable;
-    $('previewNote').textContent = it && pvFailed ? 'This PC can\'t preview this format. Headset markers are shown on a grid instead.' : '';
+    const px = it && it.kind === 'video' ? it.proxy || {} : {};
+    $('previewNote').textContent = !it ? ''
+      : px.state === 'ready' ? 'Previewing a lighter copy on this PC. Headsets play the full-resolution original.'
+      : px.state === 'making' ? 'Making a lighter preview copy for this PC: ' + Math.floor((px.pct || 0) * 100) + '%. Headsets are unaffected.'
+      : pvFailed ? 'This PC can\'t preview this format' + (px.state === 'queued' ? '. A lighter preview copy is queued.' : '. Headset markers are shown on a grid instead.')
+      : '';
     const still = !!it && it.kind === 'image';
     ['playBtn', 'stopBtn', 'backBtn', 'fwdBtn', 'seek'].forEach(id => { $(id).disabled = !it || still; });
     $('wallPlay').disabled = !it || still;
@@ -229,6 +240,11 @@
     } catch (e) { toast('Couldn\'t delete: ' + e.message); }
   }
 
+  function proxyText(it) {
+    const p = it.kind === 'video' && it.proxy; if (!p) return null;
+    return p.state === 'ready' ? 'Preview copy ready' : p.state === 'making' ? 'Making preview copy ' + Math.floor((p.pct || 0) * 100) + '%'
+      : p.state === 'queued' ? 'Preview copy queued' : p.state === 'error' ? (p.error || 'Preview copy failed') : null;
+  }
   function itemRow(it, cur) {
     const isCur = cur === it.id, open = openVid === it.id, r = readiness(it.id);
     const row = mk('div', 'vid' + (isCur ? ' current' : '') + (open ? ' open' : ''));
@@ -240,7 +256,7 @@
     tog.setAttribute('aria-expanded', open ? 'true' : 'false');
     const txt = mk('span', 'txt');
     txt.append(mk('span', 'n', it.name), mk('span', 'm num', [(it.kind === 'image' ? 'Image · ' : '') + SHAPES[it.shape] + ' ' + LAYOUTS[it.layout], fmtSize(it.size), it.duration ? fmtTime(it.duration) : null,
-      r.total ? r.done + ' of ' + r.total + ' ready' + (r.active ? ', ' + r.active + ' downloading' : '') : null].filter(Boolean).join(' · ')));
+      r.total ? r.done + ' of ' + r.total + ' ready' + (r.active ? ', ' + r.active + ' downloading' : '') : null, proxyText(it)].filter(Boolean).join(' · ')));
     tog.append(mk('span', 'ar'), txt);
     const acts = mk('div', 'acts');
     if (isCur) acts.append(mk('span', 'chip live', 'Loaded'));
@@ -262,7 +278,17 @@
       rm.disabled = !r.done || isCur; rm.title = isCur ? 'Unload it first' : '';
       const del = btn('quiet danger', 'Delete from PC', () => deleteFromPC({ id: it.id }, '"' + it.name + '"'));
       del.disabled = isCur; del.title = isCur ? 'Unload it first' : '';
-      body.append(shapeSel, layoutSel, mk('span', 'sp'), send, rm, del);
+      const extra = [];
+      if (it.kind === 'video' && it.proxy && it.proxy.state !== 'unavailable') {
+        const st = it.proxy.state;
+        if (st === 'queued') extra.push(btn('quiet', 'Cancel preview copy', () => cmd('proxyCancel', { id: it.id })));
+        else if (st !== 'making' && st !== 'checking') {
+          const pb = btn('quiet', st === 'ready' ? 'Remake preview copy' : 'Make preview copy', () => { cmd('proxy', { id: it.id }); toast('Making a preview copy of ' + it.name); });
+          pb.title = 'A lighter copy used only for the preview on this PC. Headsets always play the original.';
+          extra.push(pb);
+        }
+      }
+      body.append(shapeSel, layoutSel, mk('span', 'sp'), ...extra, send, rm, del);
       row.append(body);
     }
     return row;

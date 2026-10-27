@@ -15,6 +15,8 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
+const { spawn, spawnSync } = require('child_process');
 const { WebSocketServer } = require('ws');
 
 const ROOT = __dirname;
@@ -111,8 +113,11 @@ function scanLibrary() {
       const name = rel.split('/').pop();
       const m = Object.assign(guessFormat(name), meta[rel] || {});
       const kind = IMAGE_EXT.includes(path.extname(name).toLowerCase()) ? 'image' : 'video';
-      items.push({ id: rel, name, folder: rel.includes('/') ? rel.split('/')[0] : null, kind, size: st.size,
-        shape: m.shape, layout: m.layout, duration: kind === 'video' ? (m.duration || null) : null });
+      const item = { id: rel, name, folder: rel.includes('/') ? rel.split('/')[0] : null, kind, size: st.size,
+        shape: m.shape, layout: m.layout, duration: kind === 'video' ? (m.duration || null) : null };
+      Object.defineProperty(item, 'mtime', { value: st.mtimeMs });   // kept off the wire
+      if (kind === 'video') item.proxy = proxyStatus(item);
+      items.push(item);
     } catch {}
   };
   for (const e of fs.readdirSync(MEDIA, { withFileTypes: true })) {
@@ -126,7 +131,128 @@ function scanLibrary() {
   library = items.sort((a, b) => naturally(a.folder || '', b.folder || '') || naturally(a.name, b.name));
   return library;
 }
-const rescan = () => { scanLibrary(); broadcast({ t: 'library', items: library }); };
+const rescan = () => { scanLibrary(); broadcast({ t: 'library', items: library }); proxyCheck(); };
+
+// ---------------------------------------------------------------- preview copies ("proxies") for the control panel
+// A heavy video (8K, or a format this PC can't decode smoothly) gets a light 1080p H.264 copy that only the
+// control panel uses for its preview and "through their eyes" views. Headsets always get the original.
+const PROXIES = path.join(ROOT, 'proxies');
+const proxyCfg = Object.assign({ enabled: true, width: 1920, maxSourceWidth: 3840, codec: 'h264' }, cfg.proxy || {});
+const PROXY_EXT = proxyCfg.codec === 'vp9' ? '.webm' : '.mp4';
+const LIGHT_CODECS = ['h264', 'vp8', 'vp9', 'av1'];
+let FFMPEG = null;
+function findFfmpeg() {
+  const tries = [];
+  if (cfg.ffmpegPath) tries.push(cfg.ffmpegPath);
+  try { const p = require('ffmpeg-static'); if (p) tries.push(p); } catch {}
+  tries.push('ffmpeg');
+  for (const c of tries) {
+    try { if (spawnSync(c, ['-version'], { timeout: 8000 }).status === 0) return c; } catch {}
+  }
+  return null;
+}
+const proxyKey = it => crypto.createHash('sha1').update(it.id + '|' + it.size + '|' + Math.round(it.mtime || 0)).digest('hex').slice(0, 16);
+const proxyPath = it => path.join(PROXIES, proxyKey(it) + PROXY_EXT);
+const proxyJobs = new Map();     // id -> { state: 'queued' | 'making' | 'error', pct, error, force }
+let proxyBusy = null;            // id being made right now
+
+function proxyStatus(it) {
+  if (fs.existsSync(proxyPath(it))) return { state: 'ready', key: proxyKey(it) };
+  const job = proxyJobs.get(it.id);
+  if (job) return { state: job.state, pct: job.pct || 0, error: job.error || null };
+  if (!FFMPEG) return { state: 'unavailable' };
+  const probe = (meta[it.id] || {}).probe;
+  if (probe && probe.key === proxyKey(it) && !probe.needs) return { state: 'none', width: probe.width, codec: probe.codec };
+  return { state: proxyCfg.enabled ? 'checking' : 'none' };
+}
+
+function probe(it) {
+  return new Promise(resolve => {
+    const p = spawn(FFMPEG, ['-hide_banner', '-i', path.join(MEDIA, ...it.id.split('/'))]);
+    let err = '';
+    p.stderr.on('data', d => { err += d; });
+    p.on('close', () => {
+      const v = /Stream #\S+.*?Video: (\w+)[^\n]*?, (\d{3,5})x(\d{3,5})/.exec(err);
+      const d = /Duration: (\d+):(\d+):([\d.]+)/.exec(err);
+      resolve({ codec: v ? v[1] : null, width: v ? +v[2] : 0, height: v ? +v[3] : 0, duration: d ? (+d[1]) * 3600 + (+d[2]) * 60 + (+d[3]) : null });
+    });
+    p.on('error', () => resolve({ codec: null, width: 0 }));
+  });
+}
+
+let proxyChecking = false, proxyBroadcastAt = 0;
+function proxyBroadcast(force) {
+  const t = Date.now(); if (!force && t - proxyBroadcastAt < 1000) return;
+  proxyBroadcastAt = t; library.forEach(it => { if (it.kind === 'video') it.proxy = proxyStatus(it); });
+  broadcast({ t: 'library', items: library });
+}
+
+// Look at each video once; queue a preview copy for anything heavy
+async function proxyCheck() {
+  if (!FFMPEG || proxyChecking) return;
+  proxyChecking = true;
+  try {
+    for (const it of library.filter(v => v.kind === 'video')) {
+      if (fs.existsSync(proxyPath(it)) || proxyJobs.has(it.id)) continue;
+      const key = proxyKey(it), m = meta[it.id] || {};
+      if (!m.probe || m.probe.key !== key) {
+        const p = await probe(it);
+        const needs = p.width > proxyCfg.maxSourceWidth || !LIGHT_CODECS.includes((p.codec || '').toLowerCase());
+        meta[it.id] = Object.assign({}, meta[it.id], { probe: { key, width: p.width, codec: p.codec, needs } });
+        if (p.duration && !meta[it.id].duration) meta[it.id].duration = p.duration;
+        writeJSON(META_FILE, meta);
+      }
+      if (proxyCfg.enabled && meta[it.id].probe.needs) proxyJobs.set(it.id, { state: 'queued', pct: 0 });
+    }
+  } finally { proxyChecking = false; }
+  proxyBroadcast(true); proxyNext();
+}
+
+function proxyNext() {
+  if (proxyBusy || !FFMPEG) return;
+  const next = [...proxyJobs.entries()].find(([, j]) => j.state === 'queued');
+  if (!next) return;
+  const [id, job] = next, it = library.find(v => v.id === id);
+  if (!it) { proxyJobs.delete(id); return proxyNext(); }
+  proxyBusy = id; job.state = 'making'; job.pct = 0;
+  fs.mkdirSync(PROXIES, { recursive: true });
+  const out = proxyPath(it), tmp = out + '.part' + PROXY_EXT;
+  const dur = it.duration || ((meta[id] || {}).duration) || 0;
+  const args = ['-hide_banner', '-y', '-hwaccel', 'auto', '-i', path.join(MEDIA, ...id.split('/')), '-an',
+    '-vf', `scale=${proxyCfg.width}:-2`, '-pix_fmt', 'yuv420p', '-g', '30',
+    ...(proxyCfg.codec === 'vp9'
+      ? ['-c:v', 'libvpx-vp9', '-b:v', '0', '-crf', '38', '-deadline', 'realtime', '-cpu-used', '8']
+      : ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '28', '-movflags', '+faststart']), tmp];
+  console.log(`Making a preview copy of ${id} for the control panel…`);
+  const p = spawn(FFMPEG, args);
+  try { os.setPriority(p.pid, os.constants.priority.PRIORITY_BELOW_NORMAL); } catch {}
+  let tail = '';
+  p.stderr.on('data', d => {
+    const t = String(d); tail = (tail + t).slice(-2000);
+    const m = /time=(\d+):(\d+):([\d.]+)/.exec(t);
+    if (m && dur) { job.pct = Math.min(0.99, ((+m[1]) * 3600 + (+m[2]) * 60 + (+m[3])) / dur); proxyBroadcast(); }
+  });
+  const finish = ok => {
+    proxyBusy = null;
+    if (ok) { fs.renameSync(tmp, out); proxyJobs.delete(id); console.log(`Preview copy ready: ${id}`); }
+    else {
+      fs.rm(tmp, { force: true }, () => {});
+      job.state = 'error'; job.error = /No space left/i.test(tail) ? 'The PC\'s disk is full' : 'Couldn\'t make a preview copy';
+      console.warn(`Couldn't make a preview copy of ${id}:\n${tail.split('\n').slice(-4).join('\n')}`);
+    }
+    proxyBroadcast(true); proxyNext();
+  };
+  p.on('close', code => finish(code === 0 && fs.existsSync(tmp)));
+  p.on('error', () => finish(false));
+}
+
+function proxyRemove(ids) {
+  ids.forEach(id => {
+    const it = library.find(v => v.id === id);
+    if (it) fs.rm(proxyPath(it), { force: true }, () => {});
+    proxyJobs.delete(id);
+  });
+}
 
 let scanTimer = null;
 function watchVideos() {
@@ -186,6 +312,12 @@ function handler(defaultPage) {
     if (url === '/api/upload' && req.method === 'PUT') { if (!isLocal(req)) return deny(res); return upload(req, res); }
     if (url === '/api/delete' && req.method === 'POST') { if (!isLocal(req)) return deny(res); return remove(req, res); }
     if (url === '/lib/three.min.js') return sendFile(req, res, path.join(ROOT, 'node_modules', 'three', 'build', 'three.min.js'), true);
+    if (url.startsWith('/proxy/')) {
+      if (!isLocal(req)) { res.writeHead(403); return res.end(); }
+      const it = library.find(v => v.id === url.slice(7));
+      if (!it) { res.writeHead(404); return res.end('Not in the library'); }
+      return sendFile(req, res, proxyPath(it), true);
+    }
     const prefix = url.startsWith('/media/') ? '/media/' : url.startsWith('/videos/') ? '/videos/' : null;
     if (prefix) {
       const rel = url.slice(prefix.length);
@@ -261,6 +393,7 @@ function remove(req, res) {
     ids = library.filter(v => v.folder === folder).map(v => v.id);
     fs.rmSync(path.join(MEDIA, folder), { recursive: true, force: true });
   } else return reply(res, 400, { error: 'Nothing to delete.' });
+  proxyRemove(ids);
   ids.forEach(i => delete meta[i]); writeJSON(META_FILE, meta);
   sendHeadsets({ t: 'remove', ids });   // free the space on the headsets too
   rescan();
@@ -319,6 +452,15 @@ function command(m) {
       broadcast({ t: 'library', items: library });
       if (state.videoId === m.id) setState({}); // headsets rebuild their view
       return;
+    }
+    case 'proxy': {      // make (or remake) a preview copy on request
+      const it = library.find(v => v.id === m.id && v.kind === 'video'); if (!it || !FFMPEG) return;
+      fs.rm(proxyPath(it), { force: true }, () => {});
+      proxyJobs.set(it.id, { state: 'queued', pct: 0 }); proxyBroadcast(true); return proxyNext();
+    }
+    case 'proxyCancel': {
+      const j = proxyJobs.get(m.id); if (j && j.state !== 'making') proxyJobs.delete(m.id);
+      return proxyBroadcast(true);
     }
     case 'duration': {
       if (!library.some(v => v.id === m.id) || !(m.duration > 0)) return;
@@ -435,8 +577,11 @@ function attach(wss, allowPanel) {
 }
 
 // ---------------------------------------------------------------- start
+FFMPEG = findFfmpeg();
 scanLibrary();
 watchVideos();
+if (FFMPEG) setTimeout(proxyCheck, 1500);
+else console.log('  Preview copies are off: ffmpeg wasn\'t found. Run START.bat again to install it, or set "ffmpegPath" in config.json.');
 
 const headsetServer = https.createServer(certificate(), handler('headset.html'));
 const panelServer = http.createServer(handler('panel.html'));

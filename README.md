@@ -24,12 +24,20 @@ Synced 360°, 180° and 3D video playback, and 360° image viewing, across Meta 
 
 Settings such as ports and the media folder are in `config.json`.
 
+On slower PCs the control panel previews a light 1080p copy of heavy videos (wider than 4K, or H.265 and similar), made in the background with ffmpeg and kept in `proxies/`. Headsets always play the original. Optional settings in `config.json`:
+
+```json
+"proxy": { "enabled": true, "width": 1920, "maxSourceWidth": 3840 },
+"ffmpegPath": "C:\\path\\to\\ffmpeg.exe"
+```
+
 ## Folder layout
 
 | Path | What it is |
 | --- | --- |
 | `server.js` | The local server |
 | `public/` | Control panel, headset app, shared sync code, brand assets |
+| `proxies/` | Preview copies for the control panel (made automatically, not stored in the repository) |
 | `media/` | Videos and images, loose or in folders (not stored in the repository) |
 | `extras/sphere-player.html` | Standalone single-headset test player |
 | `Setup guide.html` | Operator setup guide |

@@ -10,9 +10,10 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-if not exist "node_modules\ws" (
-  echo Installing the server's components for the first time...
+if not exist "node_modules\.fcd-1.5" (
+  echo Installing the server's components. This only happens once per update...
   call npm install --omit=dev
+  if not errorlevel 1 type nul > "node_modules\.fcd-1.5"
 )
 start "" cmd /c "timeout /t 2 >nul & start http://localhost:8080"
 node server.js
