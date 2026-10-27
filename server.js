@@ -187,8 +187,20 @@ function proxyBroadcast(force) {
   broadcast({ t: 'library', items: library });
 }
 
+// Remove copies whose video has gone, been renamed or been replaced (copies are named by file name, size and date)
+function proxyTidy() {
+  let names; try { names = fs.readdirSync(PROXIES); } catch { return; }
+  const wanted = new Set(library.filter(v => v.kind === 'video').map(v => proxyKey(v) + PROXY_EXT));
+  const busy = proxyBusy ? library.find(v => v.id === proxyBusy) : null;
+  names.forEach(n => {
+    if (wanted.has(n) || (busy && n.startsWith(proxyKey(busy)))) return;
+    fs.rm(path.join(PROXIES, n), { force: true }, () => {});
+  });
+}
+
 // Look at each video once; queue a preview copy for anything heavy
 async function proxyCheck() {
+  proxyTidy();
   if (!FFMPEG || proxyChecking) return;
   proxyChecking = true;
   try {

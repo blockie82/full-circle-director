@@ -83,11 +83,15 @@ th { color: var(--dim); font-size: 12px; text-transform: uppercase; letter-spaci
 
   <h2>Preview copies for slower PCs</h2>
   <p>Headsets always play the full-resolution original. The control panel only needs a picture to show where people are looking, so for heavy videos (wider than 4K, or in a format such as H.265 that many PCs struggle with) Full Circle Director makes a light 1080p copy in the background and previews that instead. You'll see "Making preview copy" and then "Preview copy ready" in the library.</p>
+  <p><strong>You don't need to do anything.</strong> Copies are made, named and stored automatically. You don't create, rename or resize them yourself.</p>
   <ul>
-    <li>It happens once per video. On a slow laptop an 8K video can take longer to convert than it lasts, so add videos well before a session.</li>
-    <li>Copies are kept in the <code>proxies</code> folder. You can make them on a faster PC and copy that folder across, as long as the video files are identical.</li>
-    <li>Open a video in the library to remake its copy, or to make one for a video that wasn't picked automatically.</li>
-    <li>The first time you run this version, <code>START.bat</code> downloads the free ffmpeg tool that makes the copies. It needs internet once.</li>
+    <li><strong>Time:</strong> it happens once per video. On a slow laptop an 8K video can take longer to convert than it lasts, so add videos well before a session. You can still run a session while a copy is being made; the preview just shows the grid until it's ready.</li>
+    <li><strong>Disk space:</strong> a copy is roughly 10 MB per minute of video, whatever the original's size, so a 10-minute 8K film needs about 100 MB extra.</li>
+    <li><strong>Where they're kept:</strong> the <code>proxies</code> folder next to <code>START.bat</code>. The file names are codes, so don't rename anything in there. You can delete the whole folder at any time; copies are simply made again.</li>
+    <li><strong>Changing a video:</strong> if you replace a video with a new version, or rename it, a fresh copy is made and the old one is removed automatically.</li>
+    <li><strong>Using a faster PC:</strong> you can make copies on a faster PC and copy the <code>proxies</code> folder across, as long as the video files are identical: same name, same size, and copied rather than re-saved.</li>
+    <li><strong>Doing it by hand:</strong> open a video in the library to remake its copy, or to make one for a video that wasn't picked automatically.</li>
+    <li><strong>First run:</strong> the first time you run this version, <code>START.bat</code> downloads the free ffmpeg tool that makes the copies. It needs internet once.</li>
   </ul>
 
   <h2>If something isn't working</h2>
