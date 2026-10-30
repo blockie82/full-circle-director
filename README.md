@@ -16,7 +16,13 @@ Synced 360°, 180° and 3D video playback, and 360° image viewing, across Meta 
 - **Control panel** (`public/panel.html`, opens at `http://localhost:8080` on the PC): play, pause, stop and seek for everyone; a live preview showing where each wearer is looking; "through their eyes" views, singly or as a grid; turning everyone to face a chosen point; the media library, with adding files and folders from the panel and stepping through a folder with Previous and Next.
 - **Full Circle Player**, the headset app (`public/headset.html`, opens at `https://<PC address>:8443` in the Quest browser): stores videos on the headset, plays them in VR through the headset's compositor layer for smooth 8K, and follows the operator's playback in sync.
 
-## Running it
+## Windows app
+
+`FullCircleDirector-Windows.zip` contains a standalone app: unzip it and run `Full Circle Director.exe`. No Node.js needed. It starts the server itself, shows the control panel in its own window, and keeps media and settings in `Documents\Full Circle Director`.
+
+To build it yourself: `node desktop/build-windows.js` (works on Windows, macOS or Linux; downloads Electron and the Windows build of ffmpeg). The app's code is in `desktop/main.js`.
+
+## Running it from source
 
 1. Install [Node.js](https://nodejs.org) (LTS).
 2. Double-click `START.bat`. The first run installs the dependencies (needs internet once).
@@ -39,6 +45,7 @@ On slower PCs the control panel previews a light 1080p copy of heavy videos (wid
 | `public/` | Control panel, headset app, shared sync code, brand assets |
 | `proxies/` | Preview copies for the control panel (made automatically, not stored in the repository) |
 | `media/` | Videos and images, loose or in folders (not stored in the repository) |
+| `desktop/` | The Windows app (Electron) and its build script |
 | `extras/sphere-player.html` | Standalone single-headset test player |
 | `Setup guide.html` | Operator setup guide |
 

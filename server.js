@@ -20,19 +20,23 @@ const { spawn, spawnSync } = require('child_process');
 const { WebSocketServer } = require('ws');
 
 const ROOT = __dirname;
+// Where settings, certificates, the media library and preview copies live. Next to the code by default;
+// the Windows app points this at Documents\Full Circle Director so it works from a read-only install.
+const DATA = process.env.FCD_DATA_DIR ? path.resolve(process.env.FCD_DATA_DIR) : ROOT;
+fs.mkdirSync(DATA, { recursive: true });
 const PUBLIC = path.join(ROOT, 'public');
 const readJSON = (f, d) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return d; } };
 const writeJSON = (f, v) => { try { fs.writeFileSync(f, JSON.stringify(v, null, 2)); } catch (e) { console.error('Could not save', f, e.message); } };
 
 const cfg = Object.assign(
   { headsetPort: 8443, panelPort: 8080, startLeadMs: 1200 },
-  readJSON(path.join(ROOT, 'config.json'), {})
+  readJSON(path.join(DATA, 'config.json'), {})
 );
-const MEDIA = path.resolve(ROOT, cfg.mediaDir || cfg.videosDir || 'media');
+const MEDIA = path.resolve(DATA, cfg.mediaDir || cfg.videosDir || 'media');
 // The media folder used to be called "videos". On start, anything in an old "videos" folder
 // is moved into "media" (unzipping an update creates an empty "media" folder alongside it).
 (() => {
-  const legacy = path.join(ROOT, 'videos');
+  const legacy = path.join(DATA, 'videos');
   if (cfg.videosDir || !fs.existsSync(legacy) || path.resolve(legacy) === MEDIA) return;
   try {
     fs.mkdirSync(MEDIA, { recursive: true });
@@ -48,8 +52,8 @@ const MEDIA = path.resolve(ROOT, cfg.mediaDir || cfg.videosDir || 'media');
     if (moved) console.log(`Moved ${moved} item${moved === 1 ? '' : 's'} from the old "videos" folder into "${path.basename(MEDIA)}".`);
   } catch (e) { console.warn('Couldn\'t move the old "videos" folder into "media" (' + e.message + '). Move your files across by hand.'); }
 })();
-const META_FILE = path.join(ROOT, 'library.json');
-const HEADSETS_FILE = path.join(ROOT, 'headsets.json');
+const META_FILE = path.join(DATA, 'library.json');
+const HEADSETS_FILE = path.join(DATA, 'headsets.json');
 const now = () => performance.timeOrigin + performance.now(); // server clock, ms
 const VERSION = readJSON(path.join(ROOT, 'package.json'), {}).version || '?';
 
@@ -60,7 +64,7 @@ function lanIPs() {
 }
 
 function certificate() {
-  const dir = path.join(ROOT, 'cert');
+  const dir = path.join(DATA, 'cert');
   const keyFile = path.join(dir, 'key.pem'), certFile = path.join(dir, 'cert.pem'), ipFile = path.join(dir, 'ips.json');
   const ips = lanIPs();
   const covered = readJSON(ipFile, null);
@@ -136,7 +140,7 @@ const rescan = () => { scanLibrary(); broadcast({ t: 'library', items: library }
 // ---------------------------------------------------------------- preview copies ("proxies") for the control panel
 // A heavy video (8K, or a format this PC can't decode smoothly) gets a light 1080p H.264 copy that only the
 // control panel uses for its preview and "through their eyes" views. Headsets always get the original.
-const PROXIES = path.join(ROOT, 'proxies');
+const PROXIES = path.join(DATA, 'proxies');
 const proxyCfg = Object.assign({ enabled: true, width: 1920, maxSourceWidth: 3840, codec: 'h264' }, cfg.proxy || {});
 const PROXY_EXT = proxyCfg.codec === 'vp9' ? '.webm' : '.mp4';
 const LIGHT_CODECS = ['h264', 'vp8', 'vp9', 'av1'];
@@ -147,7 +151,7 @@ function findFfmpeg() {
   try { const p = require('ffmpeg-static'); if (p) tries.push(p); } catch {}
   tries.push('ffmpeg');
   for (const c of tries) {
-    try { if (spawnSync(c, ['-version'], { timeout: 8000 }).status === 0) return c; } catch {}
+    try { if (spawnSync(c, ['-version'], { timeout: 8000, windowsHide: true }).status === 0) return c; } catch {}
   }
   return null;
 }
@@ -155,6 +159,7 @@ const proxyKey = it => crypto.createHash('sha1').update(it.id + '|' + it.size + 
 const proxyPath = it => path.join(PROXIES, proxyKey(it) + PROXY_EXT);
 const proxyJobs = new Map();     // id -> { state: 'queued' | 'making' | 'error', pct, error, force }
 let proxyBusy = null;            // id being made right now
+let proxyProc = null;
 
 function proxyStatus(it) {
   if (fs.existsSync(proxyPath(it))) return { state: 'ready', key: proxyKey(it) };
@@ -168,7 +173,7 @@ function proxyStatus(it) {
 
 function probe(it) {
   return new Promise(resolve => {
-    const p = spawn(FFMPEG, ['-hide_banner', '-i', path.join(MEDIA, ...it.id.split('/'))]);
+    const p = spawn(FFMPEG, ['-hide_banner', '-i', path.join(MEDIA, ...it.id.split('/'))], { windowsHide: true });
     let err = '';
     p.stderr.on('data', d => { err += d; });
     p.on('close', () => {
@@ -236,7 +241,7 @@ function proxyNext() {
       ? ['-c:v', 'libvpx-vp9', '-b:v', '0', '-crf', '38', '-deadline', 'realtime', '-cpu-used', '8']
       : ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '28', '-movflags', '+faststart']), tmp];
   console.log(`Making a preview copy of ${id} for the control panel…`);
-  const p = spawn(FFMPEG, args);
+  const p = proxyProc = spawn(FFMPEG, args, { windowsHide: true });
   try { os.setPriority(p.pid, os.constants.priority.PRIORITY_BELOW_NORMAL); } catch {}
   let tail = '';
   p.stderr.on('data', d => {
@@ -245,7 +250,7 @@ function proxyNext() {
     if (m && dur) { job.pct = Math.min(0.99, ((+m[1]) * 3600 + (+m[2]) * 60 + (+m[3])) / dur); proxyBroadcast(); }
   });
   const finish = ok => {
-    proxyBusy = null;
+    proxyBusy = null; proxyProc = null;
     if (ok) { fs.renameSync(tmp, out); proxyJobs.delete(id); console.log(`Preview copy ready: ${id}`); }
     else {
       fs.rm(tmp, { force: true }, () => {});
@@ -628,3 +633,14 @@ panelServer.listen(cfg.panelPort, '127.0.0.1', () => {
     console.log('');
   });
 });
+
+// When run by the Windows app, stop cleanly (and stop any preview copy in progress) as soon as the app closes
+function shutdown() {
+  if (proxyProc) { try { proxyProc.kill(); } catch {} }
+  const t = proxyBusy && library.find(v => v.id === proxyBusy);
+  if (t) { try { fs.rmSync(proxyPath(t) + '.part' + PROXY_EXT, { force: true }); } catch {} }
+  process.exit(0);
+}
+process.on('disconnect', shutdown);
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
