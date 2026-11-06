@@ -175,6 +175,8 @@ function buildMenu() {
 // ------------------------------------------------------------------ first run: offer shortcuts
 async function offerShortcuts() {
   if (process.platform !== 'win32') return;
+  // the Setup installer and the Microsoft Store make their own shortcuts
+  if (process.windowsStore || fs.existsSync(path.join(path.dirname(process.execPath), 'Uninstall ' + NAME + '.exe'))) return;
   const flag = path.join(DATA, '.shortcuts-offered');
   if (fs.existsSync(flag)) return;
   fs.writeFileSync(flag, '');

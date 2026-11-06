@@ -20,7 +20,24 @@ Synced 360°, 180° and 3D video playback, and 360° image viewing, across Meta 
 
 `FullCircleDirector-Windows.zip` contains a standalone app: unzip it and run `Full Circle Director.exe`. No Node.js needed. It starts the server itself, shows the control panel in its own window, and keeps media and settings in `Documents\Full Circle Director`.
 
-To build it yourself: `node desktop/build-windows.js` (works on Windows, macOS or Linux; downloads Electron and the Windows build of ffmpeg). The app's code is in `desktop/main.js`.
+There are three ways to get it:
+
+- **Setup program** (`FullCircleDirector-Setup-<version>.exe`): installs for the current user without needing administrator rights. It adds Start menu and desktop shortcuts and an entry in Settings > Apps for uninstalling. `/S` installs silently.
+- **Microsoft Store package** (`FullCircleDirector-<version>.msix`): for publishing through Partner Center. The Store signs it, so no certificate is needed. It also opens port 8443 on private networks itself, so there's no firewall question.
+- **Zip** (`FullCircleDirector-Windows.zip`): unzip anywhere and run.
+
+Building:
+
+1. `node desktop/build-windows.js` makes the app folder and the zip. It works on Windows, macOS or Linux and downloads Electron and the Windows build of ffmpeg. The app's code is in `desktop/main.js`.
+2. `node desktop/build-installer.js` makes the Setup program. It needs [NSIS](https://nsis.sourceforge.io/).
+3. `node desktop/build-msix.js` makes the Store package. On Windows it needs MakeAppx from the Windows SDK; on other systems it needs `makemsix` from [msix-packaging](https://github.com/microsoft/msix-packaging), with `MAKEMSIX` pointing to it.
+
+### Publishing to the Microsoft Store
+
+1. Sign up at [Partner Center](https://partner.microsoft.com/dashboard) (free for individual developers) and reserve the name *Full Circle Director*.
+2. Under the app's *Product identity*, copy *Package/Identity/Name*, *Package/Identity/Publisher* and *Package/Properties/PublisherDisplayName* into `desktop/store/store.json`, then rebuild the `.msix`.
+3. Create a submission and upload the `.msix`. The package uses the `runFullTrust` capability, which the Store asks you to explain; for example: *"A desktop app that runs a local web server so VR headsets on the same network can play synced video."*
+4. Fill in the listing (description, screenshots, age rating, a privacy policy link) and submit for certification.
 
 ## Running it from source
 
