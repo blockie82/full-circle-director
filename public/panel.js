@@ -22,6 +22,7 @@
       if (m.t === 'library') { library = m.items; renderLibrary(); onState(); }
       else if (m.t === 'state') onState();
       else if (m.t === 'headsets') { headsets = m.list; renderHeadsets(); }
+      else if (m.t === 'pointer') fromServer(m.pointer);
     }
   });
 
@@ -106,7 +107,7 @@
     $('nowFmt').textContent = it ? (it.kind === 'image' ? 'Image · ' : '') + SHAPES[it.shape] + ' · ' + LAYOUTS[it.layout] : '';
     $('stageEmpty').hidden = !!it;
     const pickable = !!it && it.shape !== 'flat';
-    $('stage').classList.toggle('pickable', pickable); $('pickHint').hidden = !pickable;
+    $('stage').classList.toggle('pickable', pickable); renderLaser();
     const px = it && it.kind === 'video' ? it.proxy || {} : {};
     $('previewNote').textContent = !it ? ''
       : px.state === 'ready' ? 'Previewing a lighter copy on this PC. Headsets play the full-resolution original.'
@@ -185,8 +186,9 @@
   $('seek').addEventListener('input', () => { seeking = true; $('tNow').textContent = fmtTime($('seek').value / 1000 * durationNow()); });
   $('seek').addEventListener('change', () => { seeking = false; cmd('seek', { position: $('seek').value / 1000 * durationNow() }); });
   window.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { if (wallOpen) openWall(false); else if (target) { target = null; renderTarget(); } return; }
+    if (e.key === 'Escape') { if (wallOpen) openWall(false); else if (laser.on) setLaser(false); else if (target) { target = null; renderTarget(); } return; }
     const typing = /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName);
+    if (!typing && (e.key === 'l' || e.key === 'L') && !e.ctrlKey && !e.metaKey && !e.altKey) { setLaser(!laser.on); return; }
     if (!typing && sequence()) {   // presentation clickers send PageUp / PageDown
       if (e.key === 'PageDown' || e.key === ']') { e.preventDefault(); step(1); return; }
       if (e.key === 'PageUp' || e.key === '[') { e.preventDefault(); step(-1); return; }
@@ -595,7 +597,7 @@
     if (have) sctx.drawImage(frame, ox, oy, dw, dh);
     else { sctx.save(); sctx.translate(ox, oy); drawGrid(dw, dh, it); sctx.restore(); }
     geom = { ox, oy, dw, dh, dpr };
-    if (target && it.shape !== 'flat') drawTarget(it, ox, oy, dw, dh, dpr);
+    if (target && it.shape !== 'flat' && !laser.on) drawTarget(it, ox, oy, dw, dh, dpr);
 
     const now = Date.now();
     const showFov = $('showFov').checked, showNames = $('showNames').checked;
@@ -627,6 +629,7 @@
       }
       sctx.restore();
     });
+    if (laser.on && laser.show) drawLaser(it, ox, oy, dw, dh, dpr);
   }
   function roundRect(x, y, w, h, r, fill) {
     sctx.beginPath();
@@ -640,6 +643,7 @@
   let geom = null;    // where the video frame was last drawn on the stage, in canvas pixels
   const curItem = () => { const s = link.state; return s && s.videoId ? libItem(s.videoId) : null; };
   stage.addEventListener('click', e => {
+    if (laser.on) return laserClick(e);   // the laser never moves anyone's view
     const it = curItem(); if (!it || !geom || it.shape === 'flat') return;
     const r = stage.getBoundingClientRect();
     const u = ((e.clientX - r.left) * geom.dpr - geom.ox) / geom.dw, v = ((e.clientY - r.top) * geom.dpr - geom.oy) / geom.dh;
@@ -681,6 +685,85 @@
     sctx.restore();
   }
 
+  // ------------------------------------------------------------ laser pointer
+  // A red dot every wearer sees on the picture. Hover moves it; a click pins it so you can let go of the mouse.
+  let laser = { on: false, show: false, y: 0, p: 0, pinned: false }, laserTimer = null, laserSentAt = 0;
+  function sendLaser() {
+    const go = () => { laserTimer = null; laserSentAt = performance.now(); cmd('pointer', { on: laser.on, show: laser.show, y: +laser.y.toFixed(2), p: +laser.p.toFixed(2), pinned: laser.pinned }); };
+    const wait = 40 - (performance.now() - laserSentAt);      // about 25 updates a second at most
+    if (wait <= 0) { clearTimeout(laserTimer); go(); } else if (!laserTimer) laserTimer = setTimeout(go, wait);
+  }
+  function fromServer(p) {
+    // our own changes come back as echoes; a late one mustn't undo a newer click or drag the dot back
+    if (!p || laserTimer || performance.now() - laserSentAt < 600) return;
+    laser = { on: !!p.on, show: !!p.show, y: +p.y || 0, p: +p.p || 0, pinned: !!p.pinned };
+    renderLaser();
+  }
+  function setLaser(on) {
+    laser.on = on; laser.pinned = false; laser.show = false;
+    if (on && target) { target = null; renderTarget(); }
+    renderLaser(); sendLaser();
+    toast(on ? 'Laser pointer on. Click the preview to pin the dot.' : 'Laser pointer off');
+  }
+  $('laserBtn').addEventListener('click', () => setLaser(!laser.on));
+  function renderLaser() {
+    const it = curItem();
+    $('laserBtn').setAttribute('aria-pressed', laser.on ? 'true' : 'false');
+    $('laserBtn').disabled = !it && !laser.on;
+    $('stage').classList.toggle('pointing', laser.on && !!it);
+    $('stage').classList.toggle('pinned', laser.on && laser.pinned);
+    $('pickHint').hidden = !(it && (laser.on || it.shape !== 'flat'));
+    $('pickHint').textContent = laser.on
+      ? (laser.pinned ? 'The dot is pinned. Click the preview again to move it.' : 'Point at the preview to show everyone the red dot. Click to pin it.')
+      : 'Click the preview to mark a point you want everyone to face.';
+  }
+  // the inverse of project(): a spot on the stage (0..1) to a look direction in degrees
+  function unproject(it, u, v) {
+    if (it.shape === 'flat') {
+      const sc = (link.state && link.state.screen) || { dist: 12, width: 12 };
+      const h = sc.width / ((frame.width / frame.height) || 16 / 9);
+      return { y: Math.atan((u - 0.5) * sc.width / sc.dist) * 180 / Math.PI, p: Math.atan((0.5 - v) * h / sc.dist) * 180 / Math.PI };
+    }
+    const span = it.shape === '180' ? 180 : 360;
+    return { y: (u - 0.5) * span, p: (0.5 - v) * 180 };
+  }
+  function stageSpot(e) {
+    const it = curItem(); if (!it || !geom) return null;
+    const r = stage.getBoundingClientRect();
+    const u = ((e.clientX - r.left) * geom.dpr - geom.ox) / geom.dw, v = ((e.clientY - r.top) * geom.dpr - geom.oy) / geom.dh;
+    if (u < 0 || u > 1 || v < 0 || v > 1) return null;
+    return unproject(it, u, v);
+  }
+  stage.addEventListener('pointermove', e => {
+    if (!laser.on || laser.pinned) return;
+    const at = stageSpot(e);
+    if (!at) { if (laser.show) { laser.show = false; sendLaser(); } return; }
+    laser.y = at.y; laser.p = at.p; laser.show = true; sendLaser();
+  });
+  stage.addEventListener('pointerleave', () => {
+    if (laser.on && !laser.pinned && laser.show) { laser.show = false; sendLaser(); }
+  });
+  function laserClick(e) {
+    const at = stageSpot(e); if (!at) return;
+    laser.pinned = !laser.pinned;
+    laser.y = at.y; laser.p = at.p; laser.show = true;
+    renderLaser(); sendLaser();
+  }
+  function drawLaser(it, ox, oy, dw, dh, dpr) {
+    const pt = project(it, laser.y, laser.p); if (!pt) return;
+    const x = ox + pt.x * dw, y = oy + pt.y * dh, r = 18 * dpr;
+    sctx.save();
+    const g = sctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.14, 'rgba(255,235,235,1)'); g.addColorStop(0.24, 'rgba(255,50,50,1)');
+    g.addColorStop(0.5, 'rgba(255,30,30,0.45)'); g.addColorStop(1, 'rgba(255,0,0,0)');
+    sctx.fillStyle = g; sctx.beginPath(); sctx.arc(x, y, r, 0, Math.PI * 2); sctx.fill();
+    if (laser.pinned) {
+      sctx.strokeStyle = 'rgba(255,90,90,0.9)'; sctx.lineWidth = 2 * dpr;
+      sctx.beginPath(); sctx.arc(x, y, r * 0.75, 0, Math.PI * 2); sctx.stroke();
+    }
+    sctx.restore();
+  }
+
   // ------------------------------------------------------------ through their eyes
   const eyesCanvas = $('eyesCanvas');
   const er = new THREE.WebGLRenderer({ canvas: eyesCanvas, antialias: true });
@@ -689,6 +772,28 @@
   ecam.rotation.order = 'YXZ';
   const ftex = new THREE.CanvasTexture(frame); ftex.encoding = THREE.sRGBEncoding; ftex.minFilter = THREE.LinearFilter; ftex.generateMipmaps = false;
   let emesh = null, eyesSig = '';
+  const lc = document.createElement('canvas'); lc.width = lc.height = 128;
+  (() => {
+    const x = lc.getContext('2d'), g = x.createRadialGradient(64, 64, 0, 64, 64, 64);
+    g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.12, 'rgba(255,235,235,1)'); g.addColorStop(0.2, 'rgba(255,50,50,1)');
+    g.addColorStop(0.45, 'rgba(255,30,30,0.45)'); g.addColorStop(1, 'rgba(255,0,0,0)');
+    x.fillStyle = g; x.fillRect(0, 0, 128, 128);
+  })();
+  const ltex = new THREE.CanvasTexture(lc); ltex.encoding = THREE.sRGBEncoding;
+  const lsprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: ltex, transparent: true, depthTest: false, depthWrite: false }));
+  lsprite.renderOrder = 999; escene.add(lsprite);
+  // place the dot where the headsets show it (the same maths as the headset page)
+  function placeLaserDot(it) {
+    lsprite.visible = !!(it && laser.on && laser.show);
+    if (!lsprite.visible) return;
+    const y = laser.y * Math.PI / 180, p = laser.p * Math.PI / 180;
+    if (it.shape === 'flat') {
+      const sc = link.state.screen || { dist: 12, width: 12 }, d = sc.dist - 0.05;
+      lsprite.position.set(sc.dist * Math.tan(y), sc.dist * Math.tan(p), -d); lsprite.scale.setScalar(d * 0.14);
+    } else {
+      lsprite.position.set(Math.sin(y) * Math.cos(p) * 20, Math.sin(p) * 20, -Math.cos(y) * Math.cos(p) * 20); lsprite.scale.setScalar(20 * 0.14);   // drawn larger than in the headset so it reads on a small preview
+    }
+  }
   function buildEyes(it) {
     const sig = it ? [it.id, it.shape, frame.width, frame.height, JSON.stringify(link.state.screen)].join('|') : '';
     if (sig === eyesSig) return; eyesSig = sig;
@@ -721,7 +826,7 @@
     const w = Math.round(rect.width * dpr), h = Math.round(rect.height * dpr);
     if (eyesCanvas.width !== w || eyesCanvas.height !== h) er.setSize(w, h, false);
     er.setScissorTest(false); er.setViewport(0, 0, w, h); ecam.aspect = w / h; ecam.updateProjectionMatrix();
-    buildEyes(it);
+    buildEyes(it); placeLaserDot(it);
     ftex.needsUpdate = true;
     ecam.rotation.y = -hs.look.y * Math.PI / 180; ecam.rotation.x = hs.look.p * Math.PI / 180;
     er.render(escene, ecam);
@@ -761,7 +866,7 @@
     const x0 = (rect.width - (cols * tw + (cols - 1) * gap)) / 2, y0 = (rect.height - (rows * th + (rows - 1) * gap)) / 2;
     tiles.forEach((el, id) => { if (!on.some(h => h.id === id)) { el.remove(); tiles.delete(id); } });
     er.setScissorTest(false); er.setViewport(0, 0, W, H); er.setClearColor(0x0a0718, 1); er.clear();
-    if (it && !pvFailed) { grabFrame(it); buildEyes(it); ftex.needsUpdate = true; }
+    if (it && !pvFailed) { grabFrame(it); buildEyes(it); placeLaserDot(it); ftex.needsUpdate = true; }
     er.setScissorTest(true);
     const now = Date.now();
     on.forEach((h, i) => {

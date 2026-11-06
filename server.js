@@ -431,6 +431,9 @@ function setState(patch) {
   broadcast({ t: 'state', state, serverNow: now() });
 }
 
+let pointer = { on: false, y: 0, p: 0, pinned: false, show: false };
+// a new picture means the old spot no longer means anything
+function clearPointer() { if (pointer.show || pointer.pinned) { pointer = { ...pointer, show: false, pinned: false }; broadcast({ t: 'pointer', pointer }); } }
 function command(m) {
   const t = now(), pos = expectedPos(state, t);
   const lead = cfg.startLeadMs;
@@ -440,8 +443,10 @@ function command(m) {
   switch (m.op) {
     case 'load':
       if (!library.some(v => v.id === m.id)) return;
+      if (m.id !== state.videoId) clearPointer();
       return setState({ videoId: m.id, playing: false, position: 0, at: t });
     case 'unload':
+      clearPointer();
       return setState({ videoId: null, playing: false, position: 0, at: t });
     case 'play':
       if (!state.videoId || state.playing) return;
@@ -497,6 +502,11 @@ function command(m) {
       h.name = String(m.name || '').slice(0, 40) || h.name; saveHeadsets();
       if (h.ws) send(h.ws, { t: 'name', name: h.name });
       return;
+    }
+    case 'pointer': {  // laser pointer: a spot on the picture everyone sees; not part of playback state
+      const n = (v, lo, hi) => Math.max(lo, Math.min(hi, +v || 0));
+      pointer = { on: !!m.on, y: n(m.y, -180, 180), p: n(m.p, -90, 90), pinned: !!m.pinned, show: m.show !== false };
+      return broadcast({ t: 'pointer', pointer });
     }
     case 'forget':
       if (headsets.has(m.headset) && !headsets.get(m.headset).ws) { headsets.delete(m.headset); saveHeadsets(); }
@@ -572,6 +582,7 @@ function attach(wss, allowPanel) {
         }
         send(ws, { t: 'library', items: library });
         send(ws, { t: 'state', state, serverNow: now() });
+        send(ws, { t: 'pointer', pointer });
         return;
       }
       if (!me) return;

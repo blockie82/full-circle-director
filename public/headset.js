@@ -89,6 +89,7 @@
           if (lastRecenterSeq === null) lastRecenterSeq = m.state.recenterSeq;
           else if (m.state.recenterSeq !== lastRecenterSeq) { lastRecenterSeq = m.state.recenterSeq; recenter(m.state.recenterYaw); }
           ensureSource(); applyScreen(); syncTick(true); break;
+        case 'pointer': setPointer(m.pointer); break;
         case 'download': enqueue(m.ids); break;
         case 'cancel': cancelDownloads(); break;
         case 'remove': (m.ids || [m.id]).forEach(id => removeLocal(id)); break;
@@ -346,12 +347,62 @@
     updateMediaTransform();
   }
 
+  // ------------------------------------------------------------ laser pointer: a glowing dot the operator moves over the picture
+  const PTR_PX = 128;
+  const pc = document.createElement('canvas'); pc.width = pc.height = PTR_PX;
+  (() => {
+    const x = pc.getContext('2d'), r = PTR_PX / 2, g = x.createRadialGradient(r, r, 0, r, r, r);
+    g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.12, 'rgba(255,235,235,1)'); g.addColorStop(0.2, 'rgba(255,50,50,1)');
+    g.addColorStop(0.45, 'rgba(255,30,30,0.45)'); g.addColorStop(1, 'rgba(255,0,0,0)');
+    x.fillStyle = g; x.fillRect(0, 0, PTR_PX, PTR_PX);
+  })();
+  const ptex = new THREE.CanvasTexture(pc); ptex.encoding = THREE.sRGBEncoding;
+  const ptrSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: ptex, transparent: true, depthTest: false, depthWrite: false }));
+  ptrSprite.renderOrder = 999; ptrSprite.visible = false; content.add(ptrSprite);
+  let ptr = { on: false, show: false, y: 0, p: 0, pinned: false }, ptrCur = null;
+  const PTR_SIZE = 0.07;     // the glow is about 4° across, wherever it sits
+  function setPointer(np) {
+    const was = ptrVisible();
+    ptr = Object.assign({ on: false, show: false, y: 0, p: 0, pinned: false }, np);
+    if (!was || !ptrCur) ptrCur = { y: ptr.y, p: ptr.p };     // appear in place rather than sliding in
+    if (ptrVisible() !== was) applyLayers();
+  }
+  function ptrVisible() {
+    const it = itemNow();
+    return !!(ptr.on && ptr.show && it && (!isImageItem(it) || imageReady));
+  }
+  // Ease towards the operator's latest position so the dot glides rather than jumps
+  function stepPointer() {
+    if (!ptrCur) ptrCur = { y: ptr.y, p: ptr.p };
+    let dy = ptr.y - ptrCur.y; if (dy > 180) dy -= 360; if (dy < -180) dy += 360;
+    ptrCur.y += dy * 0.35; ptrCur.p += (ptr.p - ptrCur.p) * 0.35;
+    if (ptrCur.y > 180) ptrCur.y -= 360; if (ptrCur.y < -180) ptrCur.y += 360;
+  }
+  // Where the dot sits in the picture's own frame (before the recentre turn), and how far away
+  function pointerLocal(it) {
+    const y = ptrCur.y * Math.PI / 180, p = ptrCur.p * Math.PI / 180;
+    if (it.shape === 'flat') {
+      const sc = screenCfg(), d = sc.dist - 0.05;
+      return { x: sc.dist * Math.tan(y), y: sc.dist * Math.tan(p), z: -d, d, fy: 0, fp: 0 };
+    }
+    const d = 20;
+    return { x: Math.sin(y) * Math.cos(p) * d, y: Math.sin(p) * d, z: -Math.cos(y) * Math.cos(p) * d, d, fy: y, fp: p };
+  }
+  const pulse = () => ptr.pinned ? 1 + 0.12 * Math.sin(performance.now() / 260) : 1;
+  function updatePointerSprite() {
+    const vis = ptrVisible(); ptrSprite.visible = vis;
+    if (!vis) return;
+    stepPointer();
+    const l = pointerLocal(itemNow());
+    ptrSprite.position.set(l.x, l.y, l.z); ptrSprite.scale.setScalar(l.d * PTR_SIZE * pulse());
+  }
+
   // ------------------------------------------------------------ media layer (headset compositor draws the picture)
   // The compositor shows exactly one layer: the video, a still image, or a "waiting" panel.
   // A new layer is only made once its content is ready, and a failed attempt is retried,
   // so the headset never stays stuck on an old picture.
   let session = null, layerSession = null, mediaBinding = null, mediaSpace = null, mediaLayer = null, mediaSig = '', layerKind = null;
-  let glBinding = null, staticDirty = false, staticGL = null;
+  let glBinding = null, staticDirty = false, staticGL = null, ptrLayer = null, ptrGL = null, ptrDirty = false, layersShown = '';
   const yawQuat = a => ({ x: 0, y: Math.sin(a / 2), z: 0, w: Math.cos(a / 2) });
   const WAIT_W = 2, WAIT_H = 0.5, WAIT_DIST = 3;
   function updateMediaTransform() {
@@ -373,8 +424,57 @@
     mediaLayer = layer; layerKind = kind;
     staticDirty = kind !== 'video';
     updateMediaTransform();
-    layerSession.updateRenderState({ layers: [layer] });
+    layersShown = ''; applyLayers();
     if (old && old !== layer && old.destroy) try { old.destroy(); } catch {}
+  }
+  // The compositor's list: the picture, with the laser dot on top while it's showing
+  function applyLayers() {
+    if (!layerSession) return;
+    const want = ptrVisible() && mediaLayer && layerKind !== 'wait';
+    if (want && !ptrLayer && glBinding) {
+      try {
+        ptrLayer = glBinding.createQuadLayer({ space: mediaSpace, layout: 'mono', viewPixelWidth: PTR_PX, viewPixelHeight: PTR_PX, isStatic: true, width: 1, height: 1 });
+        ptrDirty = true;
+      } catch (e) { ptrLayer = null; }
+    }
+    const list = mediaLayer ? [mediaLayer] : [];
+    if (want && ptrLayer) list.push(ptrLayer);
+    const sig = list.length + (want ? 'p' : '') + (layerKind || '');
+    if (sig === layersShown && list[0] === mediaLayer) return;
+    layersShown = sig;
+    layerSession.updateRenderState({ layers: list });
+  }
+  // Each frame: move the dot's layer to where the operator is pointing
+  function updatePointerLayer(frame) {
+    if (!ptrLayer || !ptrVisible()) return;
+    if (ptrDirty || ptrLayer.needsRedraw) { try { drawPointerLayer(frame); } catch (e) { ptrDirty = false; } }
+    stepPointer();
+    const l = pointerLocal(itemNow()), c = Math.cos(-yawOffset), sn = Math.sin(-yawOffset);
+    const pos = { x: l.x * c + l.z * sn, y: l.y, z: -l.x * sn + l.z * c };    // turned with the picture
+    const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(l.fp, -(l.fy + yawOffset), 0, 'YXZ'));
+    ptrLayer.transform = new XRRigidTransform(pos, { x: q.x, y: q.y, z: q.z, w: q.w });
+    ptrLayer.width = ptrLayer.height = l.d * PTR_SIZE * pulse();
+  }
+  function drawPointerLayer(frame) {
+    const gl = renderer.getContext();
+    if (typeof WebGL2RenderingContext === 'undefined' || !(gl instanceof WebGL2RenderingContext)) return;
+    if (!ptrGL) {
+      const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true); gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);   // the compositor expects premultiplied alpha
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, pc);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false); gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      const read = gl.createFramebuffer(); gl.bindFramebuffer(gl.READ_FRAMEBUFFER, read);
+      gl.framebufferTexture2D(gl.READ_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+      ptrGL = { tex: t, read, draw: gl.createFramebuffer() };
+    }
+    const sub = glBinding.getSubImage(ptrLayer, frame), v = sub.viewport;
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, ptrGL.read); gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, ptrGL.draw);
+    gl.framebufferTexture2D(gl.DRAW_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, sub.colorTexture, 0);
+    gl.blitFramebuffer(0, 0, PTR_PX, PTR_PX, v.x, v.y, v.x + v.width, v.y + v.height, gl.COLOR_BUFFER_BIT, gl.LINEAR);
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null); gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
+    if (renderer.resetState) renderer.resetState();
+    ptrDirty = false;
   }
   function updateMediaLayer() {
     if (!layerSession) return;
@@ -387,7 +487,7 @@
     const layout = it ? { mono: 'mono', tb: 'stereo-top-bottom', sbs: 'stereo-left-right' }[it.layout] : 'mono';
     try {
       if (want === 'wait') {
-        if (!glBinding) { if (mediaLayer) { layerSession.updateRenderState({ layers: [] }); mediaLayer = null; layerKind = null; } mediaSig = sig; return; }
+        if (!glBinding) { if (mediaLayer) { mediaLayer = null; layerKind = null; layersShown = ''; applyLayers(); } mediaSig = sig; return; }
         setLayer(glBinding.createQuadLayer({ space: mediaSpace, layout: 'mono', viewPixelWidth: wc.width, viewPixelHeight: wc.height, isStatic: true, width: WAIT_W, height: WAIT_H }), 'wait');
       } else if (want === 'image') {
         if (!glBinding) { setHint('Images need the WebGL renderer on this headset. Choose it under Settings and enter VR again.', true); return; }
@@ -616,7 +716,9 @@
   } else { vrChecked = true; }
 
   function onSessionEnd() {
-    session = layerSession = mediaLayer = mediaBinding = mediaSpace = glBinding = layerKind = null; mediaSig = ''; looking = false;
+    const gl = renderer.getContext();
+    if (ptrGL) { try { gl.deleteTexture(ptrGL.tex); gl.deleteFramebuffer(ptrGL.read); gl.deleteFramebuffer(ptrGL.draw); } catch {} }
+    session = layerSession = mediaLayer = mediaBinding = mediaSpace = glBinding = layerKind = ptrLayer = ptrGL = null; mediaSig = ''; layersShown = ''; looking = false;
     clearTimeout(retryTimer);
     updateUI(); sendStatus();
   }
@@ -641,6 +743,7 @@
       if (mediaLayer && layerKind !== 'video' && (staticDirty || mediaLayer.needsRedraw)) {
         try { drawStaticLayer(frame); } catch (e) { staticDirty = false; setHint('Couldn\'t draw the picture: ' + e.message, true); }
       }
+      applyLayers(); updatePointerLayer(frame);
       syncTick(); telemetry();
       s.requestAnimationFrame(onFrame);
     };
@@ -660,7 +763,7 @@
     if (!renderer.xr.isPresenting || layerSession) return;
     renderer.xr.getCamera(camera).getWorldQuaternion(headQ);
     setLookFromQuat(headQ);
-    syncTick(); telemetry();
+    syncTick(); telemetry(); updatePointerSprite();
     renderer.render(scene, camera);
   });
 
