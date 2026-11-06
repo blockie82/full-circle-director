@@ -749,17 +749,37 @@
     laser.y = at.y; laser.p = at.p; laser.show = true;
     renderLaser(); sendLaser();
   }
-  function drawLaser(it, ox, oy, dw, dh, dpr) {
-    const pt = project(it, laser.y, laser.p); if (!pt) return;
-    const x = ox + pt.x * dw, y = oy + pt.y * dh, r = 18 * dpr;
-    sctx.save();
+  // the dot leaves a short fading trail, as it does in the headsets
+  const LASER_TRAIL = [{ lag: 30, alpha: 0.6, scale: 0.85 }, { lag: 60, alpha: 0.42, scale: 0.7 }, { lag: 95, alpha: 0.27, scale: 0.56 }, { lag: 135, alpha: 0.14, scale: 0.42 }];
+  let laserHist = [];
+  function laserGlow(x, y, r, alpha) {
     const g = sctx.createRadialGradient(x, y, 0, x, y, r);
     g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.14, 'rgba(255,235,235,1)'); g.addColorStop(0.24, 'rgba(255,50,50,1)');
     g.addColorStop(0.5, 'rgba(255,30,30,0.45)'); g.addColorStop(1, 'rgba(255,0,0,0)');
-    sctx.fillStyle = g; sctx.beginPath(); sctx.arc(x, y, r, 0, Math.PI * 2); sctx.fill();
+    sctx.globalAlpha = alpha; sctx.fillStyle = g; sctx.beginPath(); sctx.arc(x, y, r, 0, Math.PI * 2); sctx.fill();
+  }
+  function drawLaser(it, ox, oy, dw, dh, dpr) {
+    const pt = project(it, laser.y, laser.p); if (!pt) return;
+    const x = ox + pt.x * dw, y = oy + pt.y * dh, r = 9 * dpr, now = performance.now();
+    const last = laserHist[laserHist.length - 1];
+    if (last && now - last.t > 300) laserHist = [];          // it was hidden: start a fresh trail
+    laserHist.push({ t: now, u: pt.x, v: pt.y });
+    while (laserHist.length > 2 && laserHist[1].t < now - 200) laserHist.shift();
+    sctx.save();
+    for (let i = LASER_TRAIL.length - 1; i >= 0; i--) {
+      const d = LASER_TRAIL[i], tt = now - d.lag;
+      let h = laserHist[0];
+      for (let k = laserHist.length - 1; k >= 0; k--) if (laserHist[k].t <= tt) { h = laserHist[k]; break; }
+      if (Math.abs(h.u - pt.x) > 0.5) continue;              // don't streak across the seam at the back
+      const hx = ox + h.u * dw, hy = oy + h.v * dh;
+      if (Math.hypot(hx - x, hy - y) < r * 0.25) continue;
+      laserGlow(hx, hy, r * d.scale, d.alpha);
+    }
+    laserGlow(x, y, r, 1);
+    sctx.globalAlpha = 1;
     if (laser.pinned) {
-      sctx.strokeStyle = 'rgba(255,90,90,0.9)'; sctx.lineWidth = 2 * dpr;
-      sctx.beginPath(); sctx.arc(x, y, r * 0.75, 0, Math.PI * 2); sctx.stroke();
+      sctx.strokeStyle = 'rgba(255,90,90,0.9)'; sctx.lineWidth = 1.5 * dpr;
+      sctx.beginPath(); sctx.arc(x, y, r * 0.8, 0, Math.PI * 2); sctx.stroke();
     }
     sctx.restore();
   }
@@ -789,9 +809,9 @@
     const y = laser.y * Math.PI / 180, p = laser.p * Math.PI / 180;
     if (it.shape === 'flat') {
       const sc = link.state.screen || { dist: 12, width: 12 }, d = sc.dist - 0.05;
-      lsprite.position.set(sc.dist * Math.tan(y), sc.dist * Math.tan(p), -d); lsprite.scale.setScalar(d * 0.14);
+      lsprite.position.set(sc.dist * Math.tan(y), sc.dist * Math.tan(p), -d); lsprite.scale.setScalar(d * 0.07);
     } else {
-      lsprite.position.set(Math.sin(y) * Math.cos(p) * 20, Math.sin(p) * 20, -Math.cos(y) * Math.cos(p) * 20); lsprite.scale.setScalar(20 * 0.14);   // drawn larger than in the headset so it reads on a small preview
+      lsprite.position.set(Math.sin(y) * Math.cos(p) * 20, Math.sin(p) * 20, -Math.cos(y) * Math.cos(p) * 20); lsprite.scale.setScalar(20 * 0.07);   // drawn larger than in the headset so it reads on a small preview
     }
   }
   function buildEyes(it) {
