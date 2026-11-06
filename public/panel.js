@@ -186,9 +186,10 @@
   $('seek').addEventListener('input', () => { seeking = true; $('tNow').textContent = fmtTime($('seek').value / 1000 * durationNow()); });
   $('seek').addEventListener('change', () => { seeking = false; cmd('seek', { position: $('seek').value / 1000 * durationNow() }); });
   window.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { if (wallOpen) openWall(false); else if (laser.on) setLaser(false); else if (target) { target = null; renderTarget(); } return; }
+    if (e.key === 'Escape') { if (wallOpen) openWall(false); else if (bigOpen) openBig(false); else if (laser.on) setLaser(false); else if (target) { target = null; renderTarget(); } return; }
     const typing = /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName);
     if (!typing && (e.key === 'l' || e.key === 'L') && !e.ctrlKey && !e.metaKey && !e.altKey) { setLaser(!laser.on); return; }
+    if (!typing && !wallOpen && (e.key === 'f' || e.key === 'F') && !e.ctrlKey && !e.metaKey && !e.altKey) { openBig(!bigOpen); return; }
     if (!typing && sequence()) {   // presentation clickers send PageUp / PageDown
       if (e.key === 'PageDown' || e.key === ']') { e.preventDefault(); step(1); return; }
       if (e.key === 'PageUp' || e.key === '[') { e.preventDefault(); step(-1); return; }
@@ -855,6 +856,18 @@
   // ------------------------------------------------------------ all headsets at once
   let wallOpen = false;
   const tiles = new Map();
+  // ------------------------------------------------------------ the Now playing section, full screen
+  let bigOpen = false;
+  function openBig(on) {
+    bigOpen = on;
+    $('nowPanel').classList.toggle('max', on);
+    document.body.classList.toggle('big-open', on);
+    $('bigBtn').querySelector('span').textContent = on ? 'Exit full screen' : 'Full screen';
+    $('bigBtn').title = on ? 'Back to the normal view (Esc or F)' : 'Show the preview and controls full screen (F)';
+    if (document.activeElement === $('bigBtn')) $('bigBtn').blur();   // so Space plays rather than toggling this
+  }
+  $('bigBtn').addEventListener('click', () => openBig(!bigOpen));
+
   function openWall(on) {
     wallOpen = on; $('wall').hidden = !on;
     const host = on ? $('wallGrid') : $('eyesBox');
