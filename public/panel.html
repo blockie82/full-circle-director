@@ -143,15 +143,24 @@ button.danger:hover:not(:disabled) { background: rgba(255, 107, 139, 0.1); }
   .col { height: 100%; min-height: 0; display: flex; flex-direction: column; gap: 16px; }
   .col > * { flex: none; }
   /* the preview sits on the left with its controls beside it, so the library below gets most of the height */
-  .player { grid-template-columns: min(calc((100vh - 300px) * 2), calc(100% - 420px)) minmax(400px, 1fr); align-items: stretch; gap: 20px; }
-  body.lib-open .player { grid-template-columns: clamp(360px, calc((100vh - 585px) * 2), calc(100% - 420px)) minmax(400px, 1fr); }
-  .player .stage { width: 100%; margin: 0; }
-  .controls { display: flex; flex-direction: column; justify-content: space-between; }
-  .player .stage { align-self: start; }
+  /* a large preview with its options in a narrow column beside it, and the playback controls underneath */
+  .player { grid-template-columns: min(calc((100vh - 400px) * 2), calc(100% - 230px)) minmax(210px, 1fr); grid-template-areas: "stage side" "transport transport"; gap: 12px 16px; }
+  body.lib-open .player { grid-template-columns: clamp(400px, calc((100vh - 622px) * 2), calc(100% - 230px)) minmax(210px, 1fr); }
+  .player .stage { grid-area: stage; width: 100%; margin: 0; align-self: start; }
+  .player .controls { grid-area: side; align-content: start; gap: 12px; }
+  .player .transport { grid-area: transport; gap: 8px 14px; }
+  .controls .stagebar { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .controls .targetbar { flex-direction: column; align-items: stretch; gap: 8px; }
+  .controls .targetbar .what { margin: 0; font-size: 13px; }
+  .transport .big { width: 52px; height: 52px; }
+  .transport .big svg { width: 22px; height: 22px; }
+  .transport .btnrow button { padding: 5px 12px; font-size: 13px; }
+  section[aria-label="Now playing"] .ph { margin-bottom: -4px; }
   /* compact library rows: name and details on one line */
   .vhead { padding: 3px 6px 3px 4px; }
   .vtog { padding: 3px 8px; }
-  .vid .vtog .txt { display: flex; align-items: baseline; gap: 12px; }
+  .vtog .txt { display: flex; align-items: baseline; gap: 12px; }
+  .grp .vtog .txt > :first-child { font-weight: 700; }
   .vid .n { flex: 0 1 auto; min-width: 0; }
   .vid .m { flex: 0 1 auto; min-width: 0; }
   .vhead .acts button { padding: 5px 14px; font-size: 13px; }
@@ -229,6 +238,7 @@ button.danger:hover:not(:disabled) { background: rgba(255, 107, 139, 0.1); }
           <button type="button" class="primary" id="turnBtn">Turn everyone to this point</button>
           <button type="button" class="quiet" id="clearTarget">Clear point</button>
         </div>
+        </div>
         <div class="transport">
           <button type="button" class="primary big" id="playBtn" aria-label="Play" disabled>
             <svg viewBox="0 0 24 24" id="playIcon"><path d="M7 4.5v15l13-7.5z"/></svg>
@@ -250,7 +260,6 @@ button.danger:hover:not(:disabled) { background: rgba(255, 107, 139, 0.1); }
             <button type="button" class="quiet" id="recenterBtn" title="Turns everyone to face the centre of the video">Recentre everyone</button>
             <span class="chip" id="playState">Stopped</span>
           </div>
-        </div>
         </div>
         </div>
       </section>
