@@ -10,7 +10,6 @@
     <DisplayName>Full Circle Director</DisplayName>
     <PublisherDisplayName>{{publisherDisplayName}}</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
-    <Description>Play synced 360°, 180° and 3D video and images on Quest headsets, controlled from this PC.</Description>
   </Properties>
   <Dependencies>
     <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
@@ -20,18 +19,10 @@
   </Resources>
   <Applications>
     <Application Id="FullCircleDirector" Executable="Full Circle Director.exe" EntryPoint="Windows.FullTrustApplication">
-      <uap:VisualElements DisplayName="Full Circle Director" Description="Synced 360° video for VR headsets"
+      <uap:VisualElements DisplayName="Full Circle Director" Description="Synced 360-degree video for VR headsets"
         BackgroundColor="transparent" Square150x150Logo="Assets\Square150x150Logo.png" Square44x44Logo="Assets\Square44x44Logo.png">
         <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" Square310x310Logo="Assets\Square310x310Logo.png" Square71x71Logo="Assets\Square71x71Logo.png" />
       </uap:VisualElements>
-      <Extensions>
-        <!-- lets headsets reach the PC on home and work networks without a Windows Firewall question -->
-        <desktop2:Extension Category="windows.firewallRules">
-          <desktop2:FirewallRules Executable="Full Circle Director.exe">
-            <desktop2:Rule Direction="in" IPProtocol="TCP" Profile="domainAndPrivate" LocalPortMin="8443" LocalPortMax="8443" />
-          </desktop2:FirewallRules>
-        </desktop2:Extension>
-      </Extensions>
     </Application>
   </Applications>
   <Capabilities>
@@ -39,4 +30,12 @@
     <Capability Name="privateNetworkClientServer" />
     <rescap:Capability Name="runFullTrust" />
   </Capabilities>
+  <Extensions>
+    <!-- a package-level extension: lets headsets reach the PC on home and work networks without a Windows Firewall question -->
+    <desktop2:Extension Category="windows.firewallRules">
+      <desktop2:FirewallRules Executable="Full Circle Director.exe">
+        <desktop2:Rule Direction="in" IPProtocol="TCP" Profile="domainAndPrivate" LocalPortMin="8443" LocalPortMax="8443" />
+      </desktop2:FirewallRules>
+    </desktop2:Extension>
+  </Extensions>
 </Package>
