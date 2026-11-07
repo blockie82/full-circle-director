@@ -24,7 +24,7 @@ VIAddVersionKey "CompanyName" "${COMPANY}"
 VIAddVersionKey "FileDescription" "${NAME} Setup"
 VIAddVersionKey "FileVersion" "${VERSION}"
 VIAddVersionKey "ProductVersion" "${VERSION}"
-VIAddVersionKey "LegalCopyright" "© 2026 ${COMPANY}. MIT License."
+VIAddVersionKey "LegalCopyright" "© 2026 ${COMPANY}. Free to use; see LICENSE."
 
 !include "MUI2.nsh"
 !define MUI_ICON "icon.ico"

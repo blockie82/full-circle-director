@@ -167,7 +167,7 @@ function buildMenu() {
       { label: 'Project on GitHub', click: () => shell.openExternal('https://github.com/blockie82/full-circle-director') },
       { type: 'separator' },
       { label: 'About', click: () => dialog.showMessageBox(win, { type: 'info', icon: ICON, message: NAME,
-        detail: `Version ${app.getVersion()}\nBy Full Circle Immersive. Released under the MIT License.\n\nSettings and media: ${DATA}` }) }
+        detail: `Version ${app.getVersion()}\nBy Full Circle Immersive. Free for personal, education and business use under the Full Circle Director Free Use Licence. It may not be changed or sold.\n\nSettings and media: ${DATA}` }) }
     ] }
   ]));
 }

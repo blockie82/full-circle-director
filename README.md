@@ -70,9 +70,14 @@ Fonts: Manrope, under the SIL Open Font License (`public/fonts/Manrope-OFL.txt`)
 
 ## Licence
 
-Free to use, with no subscription or licence fees. Released under the [MIT License](LICENSE): you can use, copy, change and share it, including commercially, as long as the copyright notice is kept.
+Free to use, with no subscription or licence fees, under the [Full Circle Director Free Use Licence](LICENSE):
 
-The parts it is built on have their own open-source licences: three.js, ws and selfsigned (MIT), node-forge (BSD), and the Manrope font (SIL Open Font License, see `public/fonts/Manrope-OFL.txt`).
+- **You can** use it free of charge for personal use, education and business, including to run paid training or events, and give unchanged copies to others for free.
+- **You can't** change it and pass on or publish a changed version, or sell it, charge for copies, or bundle it into something that's sold, without written permission from Full Circle Immersive.
+
+The source code is public so you can see how it works, but it isn't open source. Versions before 2.0.0 were released under the MIT License, and copies of those keep that licence.
+
+The parts it is built on have their own licences: three.js, ws and selfsigned (MIT), node-forge (BSD), ffmpeg in the Windows app (GPL, with its licence beside it), Electron (MIT, see `LICENSES.chromium.html` in the app), and the Manrope font (SIL Open Font License, see `public/fonts/Manrope-OFL.txt`).
 
 ## Credits
 

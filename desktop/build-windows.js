@@ -40,7 +40,7 @@ for (const f of ['server.js', 'public', 'desktop/main.js', 'desktop/icon.ico', '
 }
 fs.writeFileSync(path.join(APP, 'package.json'), JSON.stringify({
   name: 'full-circle-director', productName: NAME, version: pkg.version, description: pkg.description,
-  main: 'desktop/main.js', license: 'MIT', author: 'Full Circle Immersive',
+  main: 'desktop/main.js', license: 'SEE LICENSE IN LICENSE', author: 'Full Circle Immersive',
   dependencies: pkg.dependencies, optionalDependencies: pkg.optionalDependencies
 }, null, 2));
 console.log('Installing the server\'s components (Windows builds)…');
@@ -72,7 +72,7 @@ const [a, b, c] = pkg.version.split('.').map(Number);
 vi.setFileVersion(a, b, c, 0, 1033); vi.setProductVersion(a, b, c, 0, 1033);
 vi.setStringValues({ lang: 1033, codepage: 1200 }, {
   FileDescription: NAME, ProductName: NAME, CompanyName: 'Full Circle Immersive', InternalName: NAME,
-  OriginalFilename: NAME + '.exe', LegalCopyright: '© 2026 Full Circle Immersive. MIT License.',
+  OriginalFilename: NAME + '.exe', LegalCopyright: '© 2026 Full Circle Immersive. Free to use; see LICENSE.',
   FileVersion: pkg.version, ProductVersion: pkg.version
 });
 vi.outputToResourceEntries(res.entries);
