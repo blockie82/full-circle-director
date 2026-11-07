@@ -1,6 +1,6 @@
 {
-  "_help": "Copy these three values from Partner Center: Apps and games > Full Circle Director > Product identity. Then run node desktop/build-msix.js",
+  "_help": "From Partner Center: Apps and games > Full Circle Director > Product identity. Rebuild with node desktop/build-msix.js",
   "identityName": "FullCircleImmersive.FullCircleDirector",
-  "publisher": "CN=00000000-0000-0000-0000-000000000000",
+  "publisher": "CN=752F65B3-60B1-4F39-8961-4AFD73346CA9",
   "publisherDisplayName": "Full Circle Immersive"
 }
