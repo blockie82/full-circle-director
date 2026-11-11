@@ -189,6 +189,7 @@
     if (e.key === 'Escape') { if (wallOpen) openWall(false); else if (bigOpen) openBig(false); else if (laser.on) setLaser(false); else if (target) { target = null; renderTarget(); } return; }
     const typing = /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName);
     if (!typing && (e.key === 'l' || e.key === 'L') && !e.ctrlKey && !e.metaKey && !e.altKey) { setLaser(!laser.on); return; }
+    if (!typing && (e.key === 'v' || e.key === 'V') && !e.ctrlKey && !e.metaKey && !e.altKey) { setView(!view.on); return; }
     if (!typing && !wallOpen && (e.key === 'f' || e.key === 'F') && !e.ctrlKey && !e.metaKey && !e.altKey) { openBig(!bigOpen); return; }
     if (!typing && sequence()) {   // presentation clickers send PageUp / PageDown
       if (e.key === 'PageDown' || e.key === ']') { e.preventDefault(); step(1); return; }
@@ -566,6 +567,7 @@
   }
   // Map a look direction (degrees) to a point on the stage, 0..1
   function project(it, y, p) {
+    if (is3d(it)) return projectDir(dirOf(y, p));
     if (it.shape === 'flat') {
       if (Math.abs(y) >= 89 || Math.abs(p) >= 89) return null;
       const sc = (link.state && link.state.screen) || { dist: 12, width: 12 };
@@ -590,13 +592,16 @@
     sctx.clearRect(0, 0, w, h);
     if (!it) return;
     const have = grabFrame(it);
-    // fit the frame inside the stage
     let dw = w, dh = h, ox = 0, oy = 0;
-    const far = it.shape === 'flat' ? frame.width / frame.height : it.shape === '180' ? 1 : 2;
-    if (w / h > far) { dw = h * far; ox = (w - dw) / 2; } else { dh = w / far; oy = (h - dh) / 2; }
-    sctx.fillStyle = '#05030d'; sctx.fillRect(0, 0, w, h);
-    if (have) sctx.drawImage(frame, ox, oy, dw, dh);
-    else { sctx.save(); sctx.translate(ox, oy); drawGrid(dw, dh, it); sctx.restore(); }
+    if (is3d(it)) render3d(it, w, h);           // the look-around view is drawn underneath; markers go on top
+    else {
+      // fit the frame inside the stage
+      const far = it.shape === 'flat' ? frame.width / frame.height : it.shape === '180' ? 1 : 2;
+      if (w / h > far) { dw = h * far; ox = (w - dw) / 2; } else { dh = w / far; oy = (h - dh) / 2; }
+      sctx.fillStyle = '#05030d'; sctx.fillRect(0, 0, w, h);
+      if (have) sctx.drawImage(frame, ox, oy, dw, dh);
+      else { sctx.save(); sctx.translate(ox, oy); drawGrid(dw, dh, it); sctx.restore(); }
+    }
     geom = { ox, oy, dw, dh, dpr };
     if (target && it.shape !== 'flat' && !laser.on) drawTarget(it, ox, oy, dw, dh, dpr);
 
@@ -608,7 +613,12 @@
       const x = ox + pt.x * dw, y = oy + pt.y * dh;
       const isSel = hs.id === selected;
       sctx.save();
-      if (showFov && it.shape !== 'flat') {
+      if (showFov && is3d(it)) {
+        sctx.strokeStyle = hs.color; sctx.globalAlpha = isSel ? 0.95 : 0.55; sctx.lineWidth = (isSel ? 2.5 : 1.5) * dpr;
+        sctx.setLineDash(isSel ? [] : [6 * dpr, 5 * dpr]);
+        drawFov3d(hs.look.y, hs.look.p, w, h);
+        sctx.setLineDash([]);
+      } else if (showFov && it.shape !== 'flat') {
         const span = it.shape === '180' ? 180 : 360;
         const fw = FOV_H / span * dw, fh = FOV_V / 180 * dh;
         sctx.strokeStyle = hs.color; sctx.globalAlpha = isSel ? 0.95 : 0.55; sctx.lineWidth = (isSel ? 2.5 : 1.5) * dpr;
@@ -631,6 +641,7 @@
       sctx.restore();
     });
     if (laser.on && laser.show) drawLaser(it, ox, oy, dw, dh, dpr);
+    if (is3d(it)) drawHeading(w, h, dpr);
   }
   function roundRect(x, y, w, h, r, fill) {
     sctx.beginPath();
@@ -644,13 +655,11 @@
   let geom = null;    // where the video frame was last drawn on the stage, in canvas pixels
   const curItem = () => { const s = link.state; return s && s.videoId ? libItem(s.videoId) : null; };
   stage.addEventListener('click', e => {
+    if (dragEnded) { dragEnded = false; return; }   // that was a drag to look around, not a click
     if (laser.on) return laserClick(e);   // the laser never moves anyone's view
     const it = curItem(); if (!it || !geom || it.shape === 'flat') return;
-    const r = stage.getBoundingClientRect();
-    const u = ((e.clientX - r.left) * geom.dpr - geom.ox) / geom.dw, v = ((e.clientY - r.top) * geom.dpr - geom.oy) / geom.dh;
-    if (u < 0 || u > 1 || v < 0 || v > 1) return;
-    const span = it.shape === '180' ? 180 : 360;
-    target = { y: (u - 0.5) * span, p: (0.5 - v) * 180 };
+    const at = stageSpot(e); if (!at) return;
+    target = { y: at.y, p: at.p };
     renderTarget();
   });
   function renderTarget() {
@@ -670,7 +679,16 @@
     const x = ox + pt.x * dw, y = oy + pt.y * dh, r = 16 * dpr;
     sctx.save();
     sctx.strokeStyle = 'rgba(255,255,255,0.55)'; sctx.lineWidth = 1 * dpr; sctx.setLineDash([4 * dpr, 6 * dpr]);
-    sctx.beginPath(); sctx.moveTo(x, oy); sctx.lineTo(x, oy + dh); sctx.stroke(); sctx.setLineDash([]);
+    if (is3d(it)) {
+      sctx.beginPath(); let pen = false;
+      for (let pp = -85; pp <= 85; pp += 5) {
+        const q = project(it, target.y, pp);
+        if (!q) { pen = false; continue; }
+        pen ? sctx.lineTo(ox + q.x * dw, oy + q.y * dh) : sctx.moveTo(ox + q.x * dw, oy + q.y * dh); pen = true;
+      }
+      sctx.stroke();
+    } else { sctx.beginPath(); sctx.moveTo(x, oy); sctx.lineTo(x, oy + dh); sctx.stroke(); }
+    sctx.setLineDash([]);
     sctx.lineWidth = 3 * dpr; sctx.strokeStyle = '#0a0718';
     sctx.beginPath(); sctx.arc(x, y, r, 0, Math.PI * 2); sctx.stroke();
     sctx.lineWidth = 2 * dpr; sctx.strokeStyle = '#ffffff';
@@ -714,12 +732,20 @@
     $('stage').classList.toggle('pointing', laser.on && !!it);
     $('stage').classList.toggle('pinned', laser.on && laser.pinned);
     $('pickHint').hidden = !(it && (laser.on || it.shape !== 'flat'));
-    $('pickHint').textContent = laser.on
+    const look = is3d(it) ? ' Drag to look around; scroll to zoom.' : '';
+    $('pickHint').textContent = (laser.on
       ? (laser.pinned ? 'The dot is pinned. Click the preview again to move it.' : 'Point at the preview to show everyone the red dot. Click to pin it.')
-      : 'Click the preview to mark a point you want everyone to face.';
+      : 'Click the preview to mark a point you want everyone to face.') + look;
+    renderView();
   }
   // the inverse of project(): a spot on the stage (0..1) to a look direction in degrees
   function unproject(it, u, v) {
+    if (is3d(it)) {
+      const d = new THREE.Vector3(u * 2 - 1, 1 - v * 2, 0.5).unproject(c3).normalize();
+      const y = Math.atan2(d.x, -d.z) * 180 / Math.PI, p = Math.asin(Math.max(-1, Math.min(1, d.y))) * 180 / Math.PI;
+      if (it.shape === '180' && Math.abs(y) > 90) return null;
+      return { y, p };
+    }
     if (it.shape === 'flat') {
       const sc = (link.state && link.state.screen) || { dist: 12, width: 12 };
       const h = sc.width / ((frame.width / frame.height) || 16 / 9);
@@ -736,7 +762,7 @@
     return unproject(it, u, v);
   }
   stage.addEventListener('pointermove', e => {
-    if (!laser.on || laser.pinned) return;
+    if (!laser.on || laser.pinned || (drag && drag.moved)) return;
     const at = stageSpot(e);
     if (!at) { if (laser.show) { laser.show = false; sendLaser(); } return; }
     laser.y = at.y; laser.p = at.p; laser.show = true; sendLaser();
@@ -852,6 +878,102 @@
     ecam.rotation.y = -hs.look.y * Math.PI / 180; ecam.rotation.x = hs.look.p * Math.PI / 180;
     er.render(escene, ecam);
   }
+
+  // ------------------------------------------------------------ 360° view on the stage
+  // Look around the picture as a wearer would. It shares the "through their eyes" scene, drawn by its own renderer.
+  const view = { on: false, yaw: 0, pitch: 0, fov: 70 };
+  try { view.on = localStorage.getItem('fcd.view360') === '1'; } catch {}
+  let r3 = null, c3 = new THREE.PerspectiveCamera(70, 2, 0.05, 200), drag = null, dragEnded = false;
+  c3.rotation.order = 'YXZ';
+  function is3d(it) { return view.on && !!it && it.shape !== 'flat'; }
+  const D = Math.PI / 180;
+  const dirOf = (y, p) => new THREE.Vector3(Math.sin(y * D) * Math.cos(p * D), Math.sin(p * D), -Math.cos(y * D) * Math.cos(p * D));
+  function aimCamera(aspect) {
+    c3.aspect = aspect; c3.fov = view.fov; c3.updateProjectionMatrix();
+    c3.rotation.y = -view.yaw * D; c3.rotation.x = view.pitch * D; c3.updateMatrixWorld();
+  }
+  // a direction to a point on the stage (0..1), or null when it's behind the viewer
+  function projectDir(v) {
+    if (v.dot(dirOf(view.yaw, view.pitch)) < 0.05) return null;
+    const q = v.clone().project(c3);
+    return { x: (q.x + 1) / 2, y: (1 - q.y) / 2 };
+  }
+  function render3d(it, w, h) {
+    if (!r3) { r3 = new THREE.WebGLRenderer({ canvas: $('stage3d'), antialias: true }); r3.outputEncoding = THREE.sRGBEncoding; r3.setClearColor(0x05030d, 1); }
+    const cv = $('stage3d'); if (cv.width !== w || cv.height !== h) r3.setSize(w, h, false);
+    aimCamera(w / h);
+    buildEyes(it); ftex.needsUpdate = true;
+    const laserShown = lsprite.visible; lsprite.visible = false;     // the stage draws its own laser dot, with its trail
+    r3.render(escene, c3); lsprite.visible = laserShown;
+  }
+  // a headset's field of view as seen from here: its edges, sampled so parts behind the viewer are left out
+  function drawFov3d(y, p, w, h) {
+    const e = new THREE.Euler(p * D, -y * D, 0, 'YXZ'), tx = Math.tan(FOV_H / 2 * D), ty = Math.tan(FOV_V / 2 * D);
+    const corners = [[-tx, ty], [tx, ty], [tx, -ty], [-tx, -ty], [-tx, ty]];
+    sctx.beginPath();
+    for (let k = 0; k < 4; k++) {
+      let pen = false;
+      for (let i = 0; i <= 16; i++) {
+        const a = corners[k], b = corners[k + 1], f = i / 16;
+        const q = projectDir(new THREE.Vector3(a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, -1).applyEuler(e).normalize());
+        if (!q) { pen = false; continue; }
+        pen ? sctx.lineTo(q.x * w, q.y * h) : sctx.moveTo(q.x * w, q.y * h); pen = true;
+      }
+    }
+    sctx.stroke();
+  }
+  // which way the 360 view is facing, bottom left
+  function drawHeading(w, h, dpr) {
+    let y = ((view.yaw + 180) % 360 + 360) % 360 - 180, p = view.pitch;
+    const ay = Math.round(Math.abs(y)), ap = Math.round(Math.abs(p));
+    const txt = 'Facing ' + (ay < 2 ? 'the centre' : ay + '° ' + (y > 0 ? 'right' : 'left')) + (ap < 3 ? '' : ', ' + ap + '° ' + (p > 0 ? 'up' : 'down'));
+    sctx.save(); sctx.font = `700 ${12 * dpr}px Manrope, sans-serif`;
+    const tw = sctx.measureText(txt).width, px = 10 * dpr, bh = 24 * dpr, x = 10 * dpr, yy = h - bh - 10 * dpr;
+    sctx.fillStyle = 'rgba(10,7,24,0.82)'; roundRect(x, yy, tw + px * 2, bh, bh / 2, true);
+    sctx.fillStyle = '#eef0ff'; sctx.textBaseline = 'middle'; sctx.fillText(txt, x + px, yy + bh / 2 + dpr); sctx.restore();
+  }
+  function setView(on) {
+    view.on = on;
+    try { localStorage.setItem('fcd.view360', on ? '1' : '0'); } catch {}
+    renderLaser();
+    toast(on ? '360° view: drag to look around, scroll to zoom.' : 'Flat panorama view');
+  }
+  function renderView() {
+    const it = curItem(), flat = it && it.shape === 'flat';
+    $('viewBtn').setAttribute('aria-pressed', view.on ? 'true' : 'false');
+    $('viewBtn').disabled = !it || flat;
+    $('viewBtn').title = flat ? 'Flat videos are already shown as they look' : 'Look around the picture as a wearer would, instead of the flat panorama (V)';
+    $('stage').classList.toggle('look', is3d(it));
+    $('viewCentre').hidden = !is3d(it) || (Math.abs(view.yaw) < 1 && Math.abs(view.pitch) < 1 && view.fov === 70);
+  }
+  $('viewBtn').addEventListener('click', () => setView(!view.on));
+  $('viewCentre').addEventListener('click', e => { e.stopPropagation(); view.yaw = 0; view.pitch = 0; view.fov = 70; renderView(); });
+  // drag to look around; a drag never counts as a click
+  stage.addEventListener('pointerdown', e => {
+    if (e.button !== 0 || !is3d(curItem())) return;
+    drag = { x: e.clientX, y: e.clientY, yaw: view.yaw, pitch: view.pitch, moved: false };
+  });
+  window.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (!drag.moved && Math.hypot(dx, dy) < 4) return;
+    if (!drag.moved) { drag.moved = true; $('stage').classList.add('dragging'); try { stage.setPointerCapture(e.pointerId); } catch {} }
+    const r = stage.getBoundingClientRect(), perPx = view.fov / r.height;   // degrees per pixel, vertically and horizontally
+    view.yaw = drag.yaw - dx * perPx;
+    view.pitch = Math.max(-85, Math.min(85, drag.pitch + dy * perPx));
+    renderView();
+  });
+  window.addEventListener('pointerup', () => {
+    if (!drag) return;
+    if (drag.moved) { dragEnded = true; setTimeout(() => { dragEnded = false; }, 250); }
+    drag = null; $('stage').classList.remove('dragging');
+  });
+  stage.addEventListener('wheel', e => {
+    if (!is3d(curItem())) return;
+    e.preventDefault();
+    view.fov = Math.max(30, Math.min(100, view.fov * (1 + Math.sign(e.deltaY) * 0.08)));
+    renderView();
+  }, { passive: false });
 
   // ------------------------------------------------------------ all headsets at once
   let wallOpen = false;

@@ -39,9 +39,18 @@ h2 { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-t
 .stagebar { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; color: var(--dim); font-size: 13px; }
 .stagebar label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
 .stage.pickable canvas { cursor: crosshair; }
+.stage #stage3d { display: none; }
+.stage.look #stage3d { display: block; }
+.stage.look canvas { cursor: grab; }
+.stage.look.dragging canvas { cursor: grabbing !important; }
+.stagebtn { position: absolute; top: 10px; right: 10px; z-index: 2; padding: 5px 12px; font-size: 13px; border-radius: 999px; background: rgba(10,7,24,0.82); border: 1px solid var(--rule); color: var(--ink); }
+.stagebtn:hover { border-color: var(--mint); }
 .stage.pointing canvas { cursor: none; }
 .stage.pointing.pinned canvas { cursor: crosshair; }
-.stagebar button.laser { display: inline-flex; gap: 8px; align-items: center; padding: 6px 12px; font-size: 13px; }
+.stagebar button.laser, .stagebar button.tog { display: inline-flex; gap: 8px; align-items: center; padding: 6px 12px; font-size: 13px; }
+.stagebar button.tog svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.stagebar button.tog kbd { font: 700 11px Manrope, sans-serif; border: 1px solid var(--rule); border-radius: 4px; padding: 0 5px; color: var(--dim); }
+.stagebar button.tog[aria-pressed="true"] { border-color: var(--mint); color: var(--mint); background: rgba(128,255,219,0.08); }
 .stagebar button.laser i { width: 10px; height: 10px; border-radius: 50%; background: #5a3040; }
 .stagebar button.laser kbd { font: 700 11px Manrope, sans-serif; border: 1px solid var(--rule); border-radius: 4px; padding: 0 5px; color: var(--dim); }
 .stagebar button.laser[aria-pressed="true"] { border-color: #ff4d4d; color: #ffe1e1; background: rgba(255, 60, 60, 0.12); }
@@ -236,7 +245,9 @@ body.big-open { overflow: hidden; }
         </div>
         <div class="player">
         <div class="stage" id="stage">
+          <canvas id="stage3d"></canvas>
           <canvas id="stageCanvas"></canvas>
+          <button type="button" class="stagebtn" id="viewCentre" hidden>Back to centre</button>
           <div class="empty" id="stageEmpty"><img src="/logo.svg" alt=""><span>Load a video or image from the library below. Each headset's view will appear here as a coloured marker.</span></div>
         </div>
         <div class="controls">
@@ -244,6 +255,7 @@ body.big-open { overflow: hidden; }
           <label for="showFov"><input type="checkbox" id="showFov" checked> Show each headset's field of view</label>
           <label for="showNames"><input type="checkbox" id="showNames" checked> Show names</label>
           <button type="button" class="quiet laser" id="laserBtn" aria-pressed="false" title="Shows a red dot on everyone's view where you point (L)"><i></i>Laser pointer <kbd>L</kbd></button>
+          <button type="button" class="quiet tog" id="viewBtn" aria-pressed="false" title="Look around the picture as a wearer would, instead of the flat panorama (V)"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3.5 9h17M3.5 15h17"/></svg>360° view <kbd>V</kbd></button>
           <span id="pickHint">Click the preview to mark a point you want everyone to face.</span>
           <span id="previewNote"></span>
         </div>
