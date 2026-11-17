@@ -125,7 +125,7 @@ async function importPrevious() {
   }
   await stopServer();
   const copied = [];
-  for (const name of ['cert', 'headsets.json', 'library.json', 'markers.json', 'proxies']) {
+  for (const name of ['cert', 'headsets.json', 'library.json', 'proxies']) {
     const from = path.join(old, name);
     if (fs.existsSync(from)) { fs.cpSync(from, path.join(DATA, name), { recursive: true, force: true }); copied.push(name); }
   }

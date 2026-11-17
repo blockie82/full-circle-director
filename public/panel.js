@@ -712,7 +712,7 @@
 
   // ------------------------------------------------------------ laser pointer
   // A red dot every wearer sees on the picture. Hover moves it; a click pins it so you can let go of the mouse.
-  let laser = { on: false, show: false, y: 0, p: 0, pinned: false }, laserTimer = null, laserSentAt = 0;
+  let laser = { on: false, show: false, y: 0, p: 0, pinned: false }, laserTimer = null, laserSentAt = -Infinity;
   function sendLaser() {
     const go = () => { laserTimer = null; laserSentAt = performance.now(); cmd('pointer', { on: laser.on, show: laser.show, y: +laser.y.toFixed(2), p: +laser.p.toFixed(2), pinned: laser.pinned }); };
     const wait = 40 - (performance.now() - laserSentAt);      // about 25 updates a second at most
@@ -823,7 +823,7 @@
 
   // ------------------------------------------------------------ numbered markers
   // Hotspot-style markers the presenter places on the picture: numbered, each in its own colour, kept per item.
-  let markerData = { show: true, items: {} }, markMode = false, mdrag = null, markSkipClick = false, markTimer = null, markSentAt = 0;
+  let markerData = { show: true, items: {} }, markMode = false, mdrag = null, markSkipClick = false, markTimer = null, markSentAt = -Infinity;   // -Infinity: nothing sent yet, so the first update from the PC is never ignored
   const curMarkers = () => { const it = curItem(); return it ? markerData.items[it.id] || [] : []; };
   function sendMarkers() {
     const it = curItem(); if (!it) return;

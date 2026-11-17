@@ -433,10 +433,11 @@ function setState(patch) {
 }
 
 let pointer = { on: false, y: 0, p: 0, pinned: false, show: false };
-// Numbered markers the presenter places on a picture, kept per library item so they come back with it
-const markers = Object.assign({ show: true, items: {} }, readJSON(MARKERS_FILE, {}));
-let markersSaveTimer = null;
-function saveMarkers() { clearTimeout(markersSaveTimer); markersSaveTimer = setTimeout(() => writeJSON(MARKERS_FILE, markers), 400); }
+// Numbered markers the presenter places on a picture. They're kept per library item while the Director is
+// running, so moving between pictures keeps them, but every session starts clean.
+const markers = { show: true, items: {} };
+try { fs.unlinkSync(MARKERS_FILE); } catch {}      // tidy away the file earlier versions saved
+function saveMarkers() {}
 // a new picture means the old spot no longer means anything
 function clearPointer() { if (pointer.show || pointer.pinned) { pointer = { ...pointer, show: false, pinned: false }; broadcast({ t: 'pointer', pointer }); } }
 function command(m) {
