@@ -453,6 +453,12 @@
   let markerData = { show: true, items: {} }, markerSig = '', markerList = [], markerKind = null;
   let markerCanvas = null, markerTex = null, markerMesh = null;
   let markerLayer = null, markerLayerDirty = false, markerGen = 0;
+  // Up to 10 markers each get their own small layer (crisp, like the laser dot); more share one overlay layer
+  let markerQuads = [], markerErr = '', markerMode = '';
+  const MARKER_QUADS_MAX = 10;
+  let frameNo = 0;
+  const appliedAt = new WeakMap();     // the frame a layer was handed to the compositor: it is drawn from the next one
+  const canDraw = l => appliedAt.has(l) && appliedAt.get(l) < frameNo;
   function markersVisible() {
     const it = itemNow();
     return !!(markerData.show && it && markerList.length && (!isImageItem(it) || imageReady));
@@ -491,22 +497,60 @@
     if (o.flat) { markerMesh.position.set(0, 0, -(o.dist - 0.03)); markerMesh.scale.set(o.width, o.width / o.aspect, 1); }
     else { markerMesh.position.set(0, 0, 0); markerMesh.scale.set(1, 1, 1); }
     markerMesh.visible = markersVisible();
-    // in VR with compositor layers: a fresh static layer, drawn once
+    // in VR with compositor layers: fresh static layers, drawn once the compositor has them
     dropMarkerLayer();
-    if (layerSession && glBinding && markersVisible()) {
+    markerMode = layerSession ? 'none' : 'mesh'; markerErr = '';
+    if (layerSession && glBinding && markersVisible() && markerList.length <= MARKER_QUADS_MAX) {
+      try {
+        markerQuads = markerList.map(m => {
+          const canvas = document.createElement('canvas'); canvas.width = canvas.height = PTR_PX;
+          FC.drawMarker(canvas.getContext('2d'), m.n, PTR_PX / 2, PTR_PX / 2, PTR_PX * 0.43);
+          const layer = glBinding.createQuadLayer({ space: mediaSpace, layout: 'mono', viewPixelWidth: PTR_PX, viewPixelHeight: PTR_PX, isStatic: true, width: 1e-4, height: 1e-4 });
+          return { m, canvas, layer, gl: null, dirty: true };
+        });
+        markerMode = 'quads'; markerGen++;
+      } catch (e) { dropMarkerLayer(); markerErr = 'Couldn\'t make marker layers: ' + e.message; }
+    } else if (layerSession && glBinding && markersVisible()) {
       try {
         markerLayer = o.flat
           ? glBinding.createQuadLayer({ space: mediaSpace, layout: 'mono', viewPixelWidth: o.w, viewPixelHeight: o.h, isStatic: true, width: o.width, height: o.width / o.aspect })
           : glBinding.createEquirectLayer({ space: mediaSpace, layout: 'mono', viewPixelWidth: o.w, viewPixelHeight: o.h, isStatic: true,
               centralHorizontalAngle: Math.PI * 2, upperVerticalAngle: Math.PI / 2, lowerVerticalAngle: -Math.PI / 2 });
-        markerLayerDirty = true; markerGen++;
+        markerLayerDirty = true; markerGen++; markerMode = 'overlay';
         updateMediaTransform();
-      } catch (e) { markerLayer = null; }
+      } catch (e) { markerLayer = null; markerErr = 'Couldn\'t make the markers layer: ' + e.message; }
     }
     applyLayers();
   }
   function dropMarkerLayer() {
     if (markerLayer) { try { markerLayer.destroy(); } catch {} markerLayer = null; markerGen++; }
+    if (markerQuads.length) {
+      const gl = renderer.getContext();
+      for (const q of markerQuads) {
+        try { q.layer.destroy(); } catch {}
+        if (q.gl) { try { gl.deleteTexture(q.gl.tex); gl.deleteFramebuffer(q.gl.read); gl.deleteFramebuffer(q.gl.draw); } catch {} }
+      }
+      markerQuads = []; markerGen++;
+    }
+  }
+  // Each frame in VR: draw any marker layer the compositor now has, and keep the markers on their spots
+  function updateMarkerLayers(frame) {
+    if (!markersVisible()) return;
+    if (markerLayer && (markerLayerDirty || markerLayer.needsRedraw) && canDraw(markerLayer)) {
+      try { drawMarkerLayer(frame); } catch (e) { markerLayerDirty = false; markerErr = 'Couldn\'t draw the markers: ' + e.message; }
+    }
+    if (!markerQuads.length) return;
+    const it = itemNow(), c = Math.cos(-yawOffset), sn = Math.sin(-yawOffset);
+    for (const q of markerQuads) {
+      if ((q.dirty || q.layer.needsRedraw) && canDraw(q.layer)) {
+        try { drawDotLayer(q, frame); } catch (e) { q.dirty = false; markerErr = 'Couldn\'t draw marker ' + q.m.n + ': ' + e.message; }
+      }
+      const l = pointerLocal(it, q.m), k = 1.02;      // just behind the laser dot
+      const pos = { x: (l.x * c + l.z * sn) * k, y: l.y * k, z: (-l.x * sn + l.z * c) * k };
+      const o = new THREE.Quaternion().setFromEuler(new THREE.Euler(l.fp, -(l.fy + yawOffset), 0, 'YXZ'));
+      q.layer.transform = new XRRigidTransform(pos, { x: o.x, y: o.y, z: o.z, w: o.w });
+      q.layer.width = q.layer.height = 2 * l.d * k * Math.tan(FC.MARKER_DEG * Math.PI / 180) * (PTR_PX / 2) / (PTR_PX * 0.43);
+    }
   }
   // copy the overlay into its layer (it is premultiplied for the compositor)
   function drawMarkerLayer(frame) {
@@ -573,13 +617,14 @@
       } catch (e) { d.layer = null; }
     }
     const list = mediaLayer ? [mediaLayer] : [];
-    const withMarkers = markerLayer && mediaLayer && layerKind !== 'wait' && markersVisible();
-    if (withMarkers) list.push(markerLayer);
+    const withMarkers = (markerLayer || markerQuads.length) && mediaLayer && layerKind !== 'wait' && markersVisible();
+    if (withMarkers) { if (markerLayer) list.push(markerLayer); markerQuads.forEach(q => list.push(q.layer)); }
     if (want) for (let i = dots.length - 1; i >= 0; i--) if (dots[i].layer) list.push(dots[i].layer);
     const sig = list.length + (want ? 'p' : '') + (layerKind || '') + (withMarkers ? 'm' + markerGen : '');
     if (sig === layersShown && list[0] === mediaLayer) return;
     layersShown = sig;
     layerSession.updateRenderState({ layers: list });
+    list.forEach(l => { if (!appliedAt.has(l)) appliedAt.set(l, frameNo); });
   }
   // Each frame: move the dot's layers to where the operator is pointing
   function updatePointerLayer(frame) {
@@ -588,7 +633,7 @@
     const it = itemNow(), head = pointerLocal(it, ptrCur), c = Math.cos(-yawOffset), sn = Math.sin(-yawOffset);
     for (const d of dots) {
       if (!d.layer) continue;
-      if (d.dirty || d.layer.needsRedraw) { try { drawDotLayer(d, frame); } catch (e) { d.dirty = false; } }
+      if ((d.dirty || d.layer.needsRedraw) && canDraw(d.layer)) { try { drawDotLayer(d, frame); } catch (e) { d.dirty = false; } }
       const l = d.lag ? pointerLocal(it, ptrAt(d.lag)) : head;
       const pos = { x: l.x * c + l.z * sn, y: l.y, z: -l.x * sn + l.z * c };    // turned with the picture
       const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(l.fp, -(l.fy + yawOffset), 0, 'YXZ'));
@@ -749,7 +794,8 @@
       fps: video.paused ? null : Math.round(fps), dropped: q ? q.droppedVideoFrames : null,
       muted: video.muted, battery: battery ? Math.round(battery.level * 100) : null, charging: battery ? battery.charging : null,
       storageFree, files, sync: link.rtt != null ? Math.round(link.rtt / 2) : null,
-      error: video.error ? 'Playback error ' + video.error.code : null
+      error: video.error ? 'Playback error ' + video.error.code : null,
+      markers: markerList.length && markersVisible() ? (markerErr || markerMode || 'pending') : null
     } });
     $('clock').textContent = link.rtt != null ? 'Timing accurate to about ' + Math.max(1, Math.round(link.rtt / 2)) + ' ms' : '';
   }
@@ -888,9 +934,9 @@
       if (mediaLayer && layerKind !== 'video' && (staticDirty || mediaLayer.needsRedraw)) {
         try { drawStaticLayer(frame); } catch (e) { staticDirty = false; setHint('Couldn\'t draw the picture: ' + e.message, true); }
       }
-      refreshMarkers();
-      if (markerLayer && markersVisible() && (markerLayerDirty || markerLayer.needsRedraw)) { try { drawMarkerLayer(frame); } catch (e) { markerLayerDirty = false; } }
-      applyLayers(); updatePointerLayer(frame);
+      frameNo++;
+      refreshMarkers(); applyLayers();
+      updateMarkerLayers(frame); updatePointerLayer(frame);
       syncTick(); telemetry();
       s.requestAnimationFrame(onFrame);
     };

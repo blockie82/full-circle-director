@@ -505,6 +505,7 @@
         if (st.battery != null) bits.push([st.battery < 20 && !st.charging ? 'bad' : '', 'Battery ' + st.battery + '%' + (st.charging ? ' charging' : '')]);
         if (st.storageFree != null) bits.push(['', fmtSize(st.storageFree) + ' free']);
         if (st.error) bits.push(['bad', st.error]);
+        if (st.markers && /^Couldn/.test(st.markers)) bits.push(['bad', 'Markers: ' + st.markers]);
       } else bits.push(['', h.lastSeen ? 'Last seen ' + new Date(h.lastSeen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '']);
       bits.forEach(([c, t]) => { const sp = document.createElement('span'); if (c) sp.className = c; sp.textContent = t; meta.append(sp); });
       el.append(sw, nm, chip, meta);
