@@ -116,7 +116,8 @@
       : pvFailed ? 'This PC can\'t preview this format' + (px.state === 'queued' ? '. A lighter preview copy is queued.' : '. Headset markers are shown on a grid instead.')
       : '';
     const still = !!it && it.kind === 'image';
-    ['playBtn', 'stopBtn', 'backBtn', 'fwdBtn', 'seek'].forEach(id => { $(id).disabled = !it || still; });
+    ['playBtn', 'backBtn', 'fwdBtn', 'seek'].forEach(id => { $(id).disabled = !it || still; });
+    $('stopBtn').disabled = $('wallStop').disabled = !it;      // Stop works for images too: it ends the showing
     $('wallPlay').disabled = !it || still;
     const playing = !!(s && s.playing);
     $('playBtn').setAttribute('aria-label', playing ? 'Pause' : 'Play');
@@ -178,7 +179,10 @@
   ['nextBtn', 'wallNext'].forEach(id => $(id).addEventListener('click', () => step(1)));
 
   $('playBtn').addEventListener('click', () => cmd(link.state && link.state.playing ? 'pause' : 'play'));
-  $('stopBtn').addEventListener('click', () => cmd('stop'));
+  // Stop ends the showing: every headset goes back to the waiting screen. Load starts it again.
+  function stopShowing() { if (!curItem()) return; cmd('unload'); toast('Stopped. Everyone is back on the waiting screen.'); }
+  $('stopBtn').addEventListener('click', stopShowing);
+  $('wallStop').addEventListener('click', stopShowing);
   $('backBtn').addEventListener('click', () => cmd('skip', { by: -10 }));
   $('fwdBtn').addEventListener('click', () => cmd('skip', { by: 10 }));
   const recentreAll = () => { cmd('recenter', { yaw: 0 }); toast('Everyone is now facing the centre of the video'); };

@@ -281,20 +281,31 @@
   let meshes = [];
 
   // In WebGL mode a panel says what's happening when no video is showing
-  const wc = document.createElement('canvas'); wc.width = 1024; wc.height = 256;
-  const wtex = new THREE.CanvasTexture(wc);
-  const waitPanel = new THREE.Mesh(new THREE.PlaneGeometry(2, 0.5), new THREE.MeshBasicMaterial({ map: wtex, transparent: true }));
+  const wc = document.createElement('canvas'); wc.width = 1024; wc.height = 400;
+  const wtex = new THREE.CanvasTexture(wc); wtex.encoding = THREE.sRGBEncoding;
+  const waitPanel = new THREE.Mesh(new THREE.PlaneGeometry(2, 2 * 400 / 1024), new THREE.MeshBasicMaterial({ map: wtex, transparent: true }));
+  // the Full Circle Immersive logo, drawn on the waiting screen once it has loaded
+  const waitLogo = new Image();
+  waitLogo.onload = () => { const [t, sub] = waitText.split('|'); waitText = ''; drawWait(t, sub); if (typeof updateMediaLayer === 'function') updateMediaLayer(); };
+  waitLogo.src = '/logo.svg';
   waitPanel.position.set(0, 0, -3); scene.add(waitPanel);
   let waitText = '';
   function drawWait(text, sub = '') {
     if (text + '|' + sub === waitText) return;
     waitText = text + '|' + sub;
-    const x = wc.getContext('2d'); x.clearRect(0, 0, 1024, 256);
-    const g = x.createLinearGradient(0, 0, 1024, 0); g.addColorStop(0, '#7400b8'); g.addColorStop(0.5, '#5390d9'); g.addColorStop(1, '#80ffdb');
-    x.fillStyle = 'rgba(18,13,41,0.92)'; x.fillRect(0, 0, 1024, 256); x.fillStyle = sub && /reach/.test(text) ? '#ffc46b' : g; x.fillRect(0, 0, 1024, 8);
-    x.fillStyle = '#eef0ff'; x.font = '700 ' + (sub ? 50 : 56) + 'px Manrope, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
-    x.fillText(text, 512, sub ? 105 : 132);
-    if (sub) { x.fillStyle = '#a9a5d2'; x.font = '600 30px Manrope, sans-serif'; x.fillText(sub, 512, 178); }
+    const W = wc.width, H = wc.height, x = wc.getContext('2d'); x.clearRect(0, 0, W, H);
+    const g = x.createLinearGradient(0, 0, W, 0); g.addColorStop(0, '#7400b8'); g.addColorStop(0.5, '#5390d9'); g.addColorStop(1, '#80ffdb');
+    x.fillStyle = 'rgba(10,7,24,0.94)'; x.fillRect(0, 0, W, H); x.fillStyle = sub && /reach/.test(text) ? '#ffc46b' : g; x.fillRect(0, 0, W, 8);
+    // brand row: the logo and "Full Circle Immersive", centred
+    x.textBaseline = 'middle'; x.textAlign = 'left'; x.font = '800 44px Manrope, sans-serif';
+    const brand = 'Full Circle Immersive', L = 96, gap = 22, tw = x.measureText(brand).width, bx = (W - (L + gap + tw)) / 2, by = 112;
+    if (waitLogo.complete && waitLogo.naturalWidth !== undefined) { try { x.drawImage(waitLogo, bx, by - L / 2, L, L); } catch {} }
+    x.fillStyle = '#eef0ff'; x.fillText(brand, bx + L + gap, by + 2);
+    x.fillStyle = 'rgba(255,255,255,0.12)'; x.fillRect(W / 2 - 300, 196, 600, 2);
+    x.textAlign = 'center';
+    x.fillStyle = '#eef0ff'; x.font = '700 ' + (sub ? 48 : 54) + 'px Manrope, sans-serif';
+    x.fillText(text, W / 2, sub ? 258 : 278);
+    if (sub) { x.fillStyle = '#a9a5d2'; x.font = '600 30px Manrope, sans-serif'; x.fillText(sub, W / 2, 322); }
     wtex.needsUpdate = true;
   }
   // The waiting screen says whether this headset can reach the PC at all, so a lost link is never
@@ -579,7 +590,7 @@
   let session = null, layerSession = null, mediaBinding = null, mediaSpace = null, mediaLayer = null, mediaSig = '', layerKind = null;
   let glBinding = null, staticDirty = false, staticGL = null, layersShown = '';
   const yawQuat = a => ({ x: 0, y: Math.sin(a / 2), z: 0, w: Math.cos(a / 2) });
-  const WAIT_W = 2, WAIT_H = 0.5, WAIT_DIST = 3;
+  const WAIT_W = 2, WAIT_H = 2 * 400 / 1024, WAIT_DIST = 3;
   function updateMediaTransform() {
     const a = -yawOffset, it = itemNow();
     const ahead = d => ({ x: Math.sin(yawOffset) * d, y: 0, z: -Math.cos(yawOffset) * d });

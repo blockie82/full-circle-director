@@ -304,7 +304,7 @@ body.big-open { overflow: hidden; }
             <span class="time num muted" id="tDur">0:00</span>
           </div>
           <div class="btnrow">
-            <button type="button" class="quiet" id="stopBtn" disabled>Stop</button>
+            <button type="button" class="quiet" id="stopBtn" disabled title="Stop and take everyone back to the waiting screen">Stop</button>
             <button type="button" class="quiet" id="backBtn" disabled>−10 s</button>
             <button type="button" class="quiet" id="fwdBtn" disabled>+10 s</button>
             <span class="seq" id="seqBox" hidden>
@@ -382,6 +382,7 @@ body.big-open { overflow: hidden; }
         <button type="button" id="wallNext">Next</button>
         <span class="num" id="wallSeqPos"></span>
       </span>
+      <button type="button" class="quiet" id="wallStop" disabled title="Stop and take everyone back to the waiting screen">Stop</button>
       <button type="button" class="quiet" id="wallRecenter">Recentre everyone</button>
       <button type="button" class="quiet" id="wallClose">Close</button>
     </div>
