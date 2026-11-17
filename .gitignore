@@ -5,6 +5,7 @@ node_modules/
 cert/
 proxies/
 library.json
+markers.json
 headsets.json
 
 # Media files stay on the PC, not in the repository

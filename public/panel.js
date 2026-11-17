@@ -23,6 +23,7 @@
       else if (m.t === 'state') onState();
       else if (m.t === 'headsets') { headsets = m.list; renderHeadsets(); }
       else if (m.t === 'pointer') fromServer(m.pointer);
+      else if (m.t === 'markers') markersFromServer(m.markers);
     }
   });
 
@@ -186,9 +187,10 @@
   $('seek').addEventListener('input', () => { seeking = true; $('tNow').textContent = fmtTime($('seek').value / 1000 * durationNow()); });
   $('seek').addEventListener('change', () => { seeking = false; cmd('seek', { position: $('seek').value / 1000 * durationNow() }); });
   window.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { if (wallOpen) openWall(false); else if (bigOpen) openBig(false); else if (laser.on) setLaser(false); else if (target) { target = null; renderTarget(); } return; }
+    if (e.key === 'Escape') { if (wallOpen) openWall(false); else if (bigOpen) openBig(false); else if (laser.on) setLaser(false); else if (markMode) setMarkMode(false); else if (target) { target = null; renderTarget(); } return; }
     const typing = /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName);
     if (!typing && (e.key === 'l' || e.key === 'L') && !e.ctrlKey && !e.metaKey && !e.altKey) { setLaser(!laser.on); return; }
+    if (!typing && (e.key === 'm' || e.key === 'M') && !e.ctrlKey && !e.metaKey && !e.altKey) { setMarkMode(!markMode); return; }
     if (!typing && (e.key === 'v' || e.key === 'V') && !e.ctrlKey && !e.metaKey && !e.altKey) { setView(!view.on); return; }
     if (!typing && !wallOpen && (e.key === 'f' || e.key === 'F') && !e.ctrlKey && !e.metaKey && !e.altKey) { openBig(!bigOpen); return; }
     if (!typing && sequence()) {   // presentation clickers send PageUp / PageDown
@@ -603,7 +605,7 @@
       else { sctx.save(); sctx.translate(ox, oy); drawGrid(dw, dh, it); sctx.restore(); }
     }
     geom = { ox, oy, dw, dh, dpr };
-    if (target && it.shape !== 'flat' && !laser.on) drawTarget(it, ox, oy, dw, dh, dpr);
+    if (target && it.shape !== 'flat' && !laser.on && !markMode) drawTarget(it, ox, oy, dw, dh, dpr);
 
     const now = Date.now();
     const showFov = $('showFov').checked, showNames = $('showNames').checked;
@@ -640,6 +642,7 @@
       }
       sctx.restore();
     });
+    drawMarkers2d(it, ox, oy, dw, dh, dpr);
     if (laser.on && laser.show) drawLaser(it, ox, oy, dw, dh, dpr);
     if (is3d(it)) drawHeading(w, h, dpr);
   }
@@ -656,6 +659,8 @@
   const curItem = () => { const s = link.state; return s && s.videoId ? libItem(s.videoId) : null; };
   stage.addEventListener('click', e => {
     if (dragEnded) { dragEnded = false; return; }   // that was a drag to look around, not a click
+    if (markSkipClick) { markSkipClick = false; return; }   // that click removed or moved a marker
+    if (markMode) return markerClick(e);
     if (laser.on) return laserClick(e);   // the laser never moves anyone's view
     const it = curItem(); if (!it || !geom || it.shape === 'flat') return;
     const at = stageSpot(e); if (!at) return;
@@ -719,6 +724,7 @@
     renderLaser();
   }
   function setLaser(on) {
+    if (on && markMode) setMarkMode(false, true);
     laser.on = on; laser.pinned = false; laser.show = false;
     if (on && target) { target = null; renderTarget(); }
     renderLaser(); sendLaser();
@@ -733,10 +739,13 @@
     $('stage').classList.toggle('pinned', laser.on && laser.pinned);
     $('pickHint').hidden = !(it && (laser.on || it.shape !== 'flat'));
     const look = is3d(it) ? ' Drag to look around; scroll to zoom.' : '';
-    $('pickHint').textContent = (laser.on
+    $('pickHint').hidden = !(it && (laser.on || markMode || it.shape !== 'flat'));
+    $('pickHint').textContent = (markMode
+      ? 'Click the preview to place the next marker. Drag a marker to move it; click one to remove it.'
+      : laser.on
       ? (laser.pinned ? 'The dot is pinned. Click the preview again to move it.' : 'Point at the preview to show everyone the red dot. Click to pin it.')
       : 'Click the preview to mark a point you want everyone to face.') + look;
-    renderView();
+    renderView(); renderMarkers();
   }
   // the inverse of project(): a spot on the stage (0..1) to a look direction in degrees
   function unproject(it, u, v) {
@@ -811,6 +820,134 @@
     sctx.restore();
   }
 
+  // ------------------------------------------------------------ numbered markers
+  // Hotspot-style markers the presenter places on the picture: numbered, each in its own colour, kept per item.
+  let markerData = { show: true, items: {} }, markMode = false, mdrag = null, markSkipClick = false, markTimer = null, markSentAt = 0;
+  const curMarkers = () => { const it = curItem(); return it ? markerData.items[it.id] || [] : []; };
+  function sendMarkers() {
+    const it = curItem(); if (!it) return;
+    const go = () => { markTimer = null; markSentAt = performance.now(); cmd('markers', { id: it.id, list: markerData.items[it.id] || [] }); };
+    const wait = 80 - (performance.now() - markSentAt);
+    if (wait <= 0) { clearTimeout(markTimer); go(); } else if (!markTimer) markTimer = setTimeout(go, wait);
+  }
+  function markersFromServer(d) {
+    if (!d || markTimer || mdrag || performance.now() - markSentAt < 600) { if (d) markerData.show = !!d.show; renderMarkers(); return; }
+    markerData = { show: !!d.show, items: d.items || {} };
+    renderMarkers();
+  }
+  function setMarkMode(on, quiet) {
+    if (on && laser.on) setLaser(false);
+    markMode = on;
+    if (on && target) { target = null; renderTarget(); }
+    renderLaser();
+    if (!quiet) toast(on ? 'Markers on: click the preview to place numbered markers.' : 'Markers: placing off. The markers stay in place.');
+  }
+  $('markBtn').addEventListener('click', () => setMarkMode(!markMode));
+  $('markShowBtn').addEventListener('click', () => {
+    markerData.show = !markerData.show; markSentAt = performance.now();
+    cmd('markersShow', { on: markerData.show }); renderMarkers();
+    toast(markerData.show ? 'Markers shown in the headsets' : 'Markers hidden from the headsets (still shown here)');
+  });
+  $('markClearBtn').addEventListener('click', () => {
+    const it = curItem(); if (!it) return;
+    delete markerData.items[it.id]; sendMarkers(); renderMarkers(); toast('Markers cleared from this picture');
+  });
+  function renderMarkers() {
+    const it = curItem(), list = curMarkers();
+    $('markBtn').setAttribute('aria-pressed', markMode ? 'true' : 'false');
+    $('markBtn').disabled = !it && !markMode;
+    $('stage').classList.toggle('marking', markMode && !!it);
+    $('markerBar').hidden = !it || (!markMode && !list.length);
+    const w = $('markerWhat'); w.textContent = ''; w.classList.toggle('off', !markerData.show);
+    if (!list.length) w.textContent = 'No markers on this picture yet.';
+    else {
+      [...list].sort((a, b) => a.n - b.n).forEach(m => { const i = document.createElement('i'); i.textContent = m.n; i.style.background = FC.markerColor(m.n); w.append(i); });
+      const t = document.createElement('span');
+      t.textContent = (list.length === 1 ? '1 marker' : list.length + ' markers') + (markerData.show ? ', shown in the headsets' : ', hidden from the headsets');
+      w.append(t);
+    }
+    $('markShowBtn').textContent = markerData.show ? 'Hide from headsets' : 'Show in headsets';
+    $('markShowBtn').disabled = !list.length && markerData.show;
+    $('markClearBtn').disabled = !list.length;
+  }
+  // where each marker is on the stage, in canvas pixels
+  function markerSpots(it) {
+    if (!geom) return [];
+    return curMarkers().map(m => { const q = project(it, m.y, m.p); return q && { m, x: geom.ox + q.x * geom.dw, y: geom.oy + q.y * geom.dh }; }).filter(Boolean);
+  }
+  function markerAt(e) {
+    const it = curItem(); if (!it || !geom) return null;
+    const r = stage.getBoundingClientRect(), x = (e.clientX - r.left) * geom.dpr, y = (e.clientY - r.top) * geom.dpr;
+    let best = null, bd = 16 * geom.dpr;
+    for (const s of markerSpots(it)) { const d = Math.hypot(s.x - x, s.y - y); if (d <= bd) { bd = d; best = s.m; } }
+    return best;
+  }
+  function markerClick(e) {
+    const it = curItem(), at = stageSpot(e); if (!it || !at) return;
+    const list = markerData.items[it.id] = markerData.items[it.id] || [];
+    if (list.length >= 30) return toast('A picture can have up to 30 markers');
+    let n = 1; while (list.some(m => m.n === n)) n++;        // the lowest free number
+    list.push({ n, y: +at.y.toFixed(2), p: +at.p.toFixed(2) });
+    sendMarkers(); renderMarkers();
+  }
+  stage.addEventListener('pointerdown', e => {
+    if (!markMode || e.button !== 0) return;
+    const m = markerAt(e); if (!m) return;
+    mdrag = { m, x: e.clientX, y: e.clientY, moved: false };
+    try { stage.setPointerCapture(e.pointerId); } catch {}
+  });
+  window.addEventListener('pointermove', e => {
+    if (mdrag) {
+      if (!mdrag.moved && Math.hypot(e.clientX - mdrag.x, e.clientY - mdrag.y) < 4) return;
+      mdrag.moved = true;
+      const at = stageSpot(e); if (!at) return;
+      mdrag.m.y = +at.y.toFixed(2); mdrag.m.p = +at.p.toFixed(2); sendMarkers();
+      return;
+    }
+    if (markMode && e.target === $('stageCanvas')) $('stageCanvas').style.cursor = markerAt(e) ? 'move' : '';
+  });
+  window.addEventListener('pointerup', () => {
+    if (!mdrag) return;
+    const { m, moved } = mdrag; mdrag = null; markSkipClick = true; setTimeout(() => { markSkipClick = false; }, 250);
+    const it = curItem();
+    if (!moved && it) {       // a click on a marker removes it
+      markerData.items[it.id] = (markerData.items[it.id] || []).filter(k => k !== m);
+      if (!markerData.items[it.id].length) delete markerData.items[it.id];
+    }
+    sendMarkers(); renderMarkers();
+  });
+  function drawMarkers2d(it, ox, oy, dw, dh, dpr) {
+    const spots = markerSpots(it); if (!spots.length) return;
+    const r = 12 * dpr, a = markerData.show ? 1 : 0.5;
+    spots.sort((p, q) => p.m.n - q.m.n).forEach(s => FC.drawMarker(sctx, s.m.n, s.x, s.y, r, 1, a));
+  }
+  // the same markers in the "through their eyes" views, as the headsets show them
+  const mcv = document.createElement('canvas');
+  const mtex = new THREE.CanvasTexture(mcv); mtex.encoding = THREE.sRGBEncoding;
+  let mmesh = null, mkind = '', msig = '';
+  function placeMarkerOverlay(it) {
+    const list = it ? curMarkers() : [];
+    const vis = !!(it && list.length && markerData.show);
+    const sc = (link.state && link.state.screen) || { dist: 12, width: 12 };
+    const aspect = (frame.width / frame.height) || 16 / 9;
+    const o = it && it.shape === 'flat' ? { flat: true, w: 1024, h: Math.max(32, Math.round(1024 / aspect)), dist: sc.dist, width: sc.width, aspect } : { flat: false, w: 2048, h: 1024 };
+    const sig = vis ? JSON.stringify([it.id, list, o]) : '';
+    if (mmesh) mmesh.visible = vis;
+    if (sig === msig) return; msig = sig;
+    if (!vis) return;
+    if (mcv.width !== o.w || mcv.height !== o.h) { mcv.width = o.w; mcv.height = o.h; mtex.dispose(); }
+    FC.drawMarkerOverlay(mcv, list, o); mtex.needsUpdate = true;
+    const kind = o.flat ? 'flat' : 'sphere';
+    if (!mmesh || mkind !== kind) {
+      if (mmesh) { escene.remove(mmesh); mmesh.geometry.dispose(); mmesh.material.dispose(); }
+      let g; if (o.flat) g = new THREE.PlaneGeometry(1, 1); else { g = new THREE.SphereGeometry(45, 64, 32); g.scale(-1, 1, 1); g.rotateY(-Math.PI / 2); }
+      mmesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ map: mtex, transparent: true, depthTest: false, depthWrite: false, side: THREE.DoubleSide }));
+      mmesh.renderOrder = 900; escene.add(mmesh); mkind = kind;
+    }
+    if (o.flat) { mmesh.position.set(0, 0, -(o.dist - 0.03)); mmesh.scale.set(o.width, o.width / o.aspect, 1); } else { mmesh.position.set(0, 0, 0); mmesh.scale.set(1, 1, 1); }
+    mmesh.visible = true;
+  }
+
   // ------------------------------------------------------------ through their eyes
   const eyesCanvas = $('eyesCanvas');
   const er = new THREE.WebGLRenderer({ canvas: eyesCanvas, antialias: true });
@@ -873,7 +1010,7 @@
     const w = Math.round(rect.width * dpr), h = Math.round(rect.height * dpr);
     if (eyesCanvas.width !== w || eyesCanvas.height !== h) er.setSize(w, h, false);
     er.setScissorTest(false); er.setViewport(0, 0, w, h); ecam.aspect = w / h; ecam.updateProjectionMatrix();
-    buildEyes(it); placeLaserDot(it);
+    buildEyes(it); placeLaserDot(it); placeMarkerOverlay(it);
     ftex.needsUpdate = true;
     ecam.rotation.y = -hs.look.y * Math.PI / 180; ecam.rotation.x = hs.look.p * Math.PI / 180;
     er.render(escene, ecam);
@@ -903,8 +1040,9 @@
     const cv = $('stage3d'); if (cv.width !== w || cv.height !== h) r3.setSize(w, h, false);
     aimCamera(w / h);
     buildEyes(it); ftex.needsUpdate = true;
-    const laserShown = lsprite.visible; lsprite.visible = false;     // the stage draws its own laser dot, with its trail
-    r3.render(escene, c3); lsprite.visible = laserShown;
+    const laserShown = lsprite.visible, mShown = mmesh && mmesh.visible;
+    lsprite.visible = false; if (mmesh) mmesh.visible = false;      // the stage draws its own laser dot and markers on top
+    r3.render(escene, c3); lsprite.visible = laserShown; if (mmesh) mmesh.visible = mShown;
   }
   // a headset's field of view as seen from here: its edges, sampled so parts behind the viewer are left out
   function drawFov3d(y, p, w, h) {
@@ -950,7 +1088,7 @@
   $('viewCentre').addEventListener('click', e => { e.stopPropagation(); view.yaw = 0; view.pitch = 0; view.fov = 70; renderView(); });
   // drag to look around; a drag never counts as a click
   stage.addEventListener('pointerdown', e => {
-    if (e.button !== 0 || !is3d(curItem())) return;
+    if (e.button !== 0 || !is3d(curItem()) || mdrag) return;      // dragging a marker isn't looking around
     drag = { x: e.clientX, y: e.clientY, yaw: view.yaw, pitch: view.pitch, moved: false };
   });
   window.addEventListener('pointermove', e => {
@@ -1021,7 +1159,7 @@
     const x0 = (rect.width - (cols * tw + (cols - 1) * gap)) / 2, y0 = (rect.height - (rows * th + (rows - 1) * gap)) / 2;
     tiles.forEach((el, id) => { if (!on.some(h => h.id === id)) { el.remove(); tiles.delete(id); } });
     er.setScissorTest(false); er.setViewport(0, 0, W, H); er.setClearColor(0x0a0718, 1); er.clear();
-    if (it && !pvFailed) { grabFrame(it); buildEyes(it); placeLaserDot(it); ftex.needsUpdate = true; }
+    if (it && !pvFailed) { grabFrame(it); buildEyes(it); placeLaserDot(it); placeMarkerOverlay(it); ftex.needsUpdate = true; }
     er.setScissorTest(true);
     const now = Date.now();
     on.forEach((h, i) => {

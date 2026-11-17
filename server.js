@@ -54,6 +54,7 @@ const MEDIA = path.resolve(DATA, cfg.mediaDir || cfg.videosDir || 'media');
 })();
 const META_FILE = path.join(DATA, 'library.json');
 const HEADSETS_FILE = path.join(DATA, 'headsets.json');
+const MARKERS_FILE = path.join(DATA, 'markers.json');
 const now = () => performance.timeOrigin + performance.now(); // server clock, ms
 const VERSION = readJSON(path.join(ROOT, 'package.json'), {}).version || '?';
 
@@ -432,6 +433,10 @@ function setState(patch) {
 }
 
 let pointer = { on: false, y: 0, p: 0, pinned: false, show: false };
+// Numbered markers the presenter places on a picture, kept per library item so they come back with it
+const markers = Object.assign({ show: true, items: {} }, readJSON(MARKERS_FILE, {}));
+let markersSaveTimer = null;
+function saveMarkers() { clearTimeout(markersSaveTimer); markersSaveTimer = setTimeout(() => writeJSON(MARKERS_FILE, markers), 400); }
 // a new picture means the old spot no longer means anything
 function clearPointer() { if (pointer.show || pointer.pinned) { pointer = { ...pointer, show: false, pinned: false }; broadcast({ t: 'pointer', pointer }); } }
 function command(m) {
@@ -508,6 +513,20 @@ function command(m) {
       pointer = { on: !!m.on, y: n(m.y, -180, 180), p: n(m.p, -90, 90), pinned: !!m.pinned, show: m.show !== false };
       return broadcast({ t: 'pointer', pointer });
     }
+    case 'markers': {  // the whole list for one item, as the panel now has it
+      const id = String(m.id || '').slice(0, 1024); if (!id) return;
+      const n = (v, lo, hi) => Math.max(lo, Math.min(hi, +v || 0));
+      const seen = new Set();
+      const list = (Array.isArray(m.list) ? m.list : []).slice(0, 30)
+        .map(k => ({ n: Math.round(n(k.n, 1, 99)), y: +n(k.y, -180, 180).toFixed(2), p: +n(k.p, -90, 90).toFixed(2) }))
+        .filter(k => !seen.has(k.n) && seen.add(k.n));
+      if (list.length) markers.items[id] = list; else delete markers.items[id];
+      saveMarkers();
+      return broadcast({ t: 'markers', markers });
+    }
+    case 'markersShow':
+      markers.show = !!m.on; saveMarkers();
+      return broadcast({ t: 'markers', markers });
     case 'forget':
       if (headsets.has(m.headset) && !headsets.get(m.headset).ws) { headsets.delete(m.headset); saveHeadsets(); }
       return;
@@ -583,6 +602,7 @@ function attach(wss, allowPanel) {
         send(ws, { t: 'library', items: library });
         send(ws, { t: 'state', state, serverNow: now() });
         send(ws, { t: 'pointer', pointer });
+        send(ws, { t: 'markers', markers });
         return;
       }
       if (!me) return;

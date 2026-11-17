@@ -45,11 +45,18 @@ h2 { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-t
 .stage.look.dragging canvas { cursor: grabbing !important; }
 .stagebtn { position: absolute; top: 10px; right: 10px; z-index: 2; padding: 5px 12px; font-size: 13px; border-radius: 999px; background: rgba(10,7,24,0.82); border: 1px solid var(--rule); color: var(--ink); }
 .stagebtn:hover { border-color: var(--mint); }
+.stage.marking canvas { cursor: crosshair; }
 .stage.pointing canvas { cursor: none; }
 .stage.pointing.pinned canvas { cursor: crosshair; }
 .stagebar button.laser, .stagebar button.tog { display: inline-flex; gap: 8px; align-items: center; padding: 6px 12px; font-size: 13px; }
 .stagebar button.tog svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; }
 .stagebar button.tog kbd { font: 700 11px Manrope, sans-serif; border: 1px solid var(--rule); border-radius: 4px; padding: 0 5px; color: var(--dim); }
+.stagebar button.tog.mk[aria-pressed="true"] { border-color: #3a86ff; color: #cfe0ff; background: rgba(58, 134, 255, 0.14); }
+.markerbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 12px; border: 1px solid var(--rule); border-radius: 12px; background: rgba(18, 13, 41, 0.6); }
+.markerbar .what { font-size: 13px; color: var(--dim); flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+.markerbar .what i { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; font: 800 11px Manrope, sans-serif; font-style: normal; color: #fff; border: 2px solid #fff; }
+.markerbar .what.off i { opacity: 0.45; }
+.markerbar button { padding: 4px 12px; font-size: 13px; }
 .stagebar button.tog[aria-pressed="true"] { border-color: var(--mint); color: var(--mint); background: rgba(128,255,219,0.08); }
 .stagebar button.laser i { width: 10px; height: 10px; border-radius: 50%; background: #5a3040; }
 .stagebar button.laser kbd { font: 700 11px Manrope, sans-serif; border: 1px solid var(--rule); border-radius: 4px; padding: 0 5px; color: var(--dim); }
@@ -255,9 +262,15 @@ body.big-open { overflow: hidden; }
           <label for="showFov"><input type="checkbox" id="showFov" checked> Show each headset's field of view</label>
           <label for="showNames"><input type="checkbox" id="showNames" checked> Show names</label>
           <button type="button" class="quiet laser" id="laserBtn" aria-pressed="false" title="Shows a red dot on everyone's view where you point (L)"><i></i>Laser pointer <kbd>L</kbd></button>
+          <button type="button" class="quiet tog mk" id="markBtn" aria-pressed="false" title="Place numbered markers on the picture (M)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6.5-6.2-6.5-11.2a6.5 6.5 0 0 1 13 0C18.5 14.8 12 21 12 21z"/><path d="M11 8l1.5-1v6"/></svg>Markers <kbd>M</kbd></button>
           <button type="button" class="quiet tog" id="viewBtn" aria-pressed="false" title="Look around the picture as a wearer would, instead of the flat panorama (V)"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3.5 9h17M3.5 15h17"/></svg>360° view <kbd>V</kbd></button>
           <span id="pickHint">Click the preview to mark a point you want everyone to face.</span>
           <span id="previewNote"></span>
+        </div>
+        <div class="markerbar" id="markerBar" hidden>
+          <span class="what" id="markerWhat">No markers</span>
+          <button type="button" class="quiet" id="markShowBtn">Hide from headsets</button>
+          <button type="button" class="quiet" id="markClearBtn">Clear all</button>
         </div>
         <div class="targetbar" id="targetBar" hidden>
           <span class="what" id="targetWhat">Point marked</span>

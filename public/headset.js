@@ -90,6 +90,7 @@
           else if (m.state.recenterSeq !== lastRecenterSeq) { lastRecenterSeq = m.state.recenterSeq; recenter(m.state.recenterYaw); }
           ensureSource(); applyScreen(); syncTick(true); break;
         case 'pointer': setPointer(m.pointer); break;
+        case 'markers': markerData = m.markers || markerData; break;
         case 'download': enqueue(m.ids); break;
         case 'cancel': cancelDownloads(); break;
         case 'remove': (m.ids || [m.id]).forEach(id => removeLocal(id)); break;
@@ -429,6 +430,87 @@
     }
   }
 
+  // ------------------------------------------------------------ numbered markers the presenter places on the picture
+  // All of the picture's markers are drawn onto one see-through overlay: a full panorama for 360° and 180°,
+  // or the screen itself for flat videos. It is redrawn only when the markers change.
+  let markerData = { show: true, items: {} }, markerSig = '', markerList = [], markerKind = null;
+  let markerCanvas = null, markerTex = null, markerMesh = null;
+  let markerLayer = null, markerLayerDirty = false, markerGen = 0;
+  function markersVisible() {
+    const it = itemNow();
+    return !!(markerData.show && it && markerList.length && (!isImageItem(it) || imageReady));
+  }
+  function markerOpts(it) {
+    if (it.shape !== 'flat') return { flat: false, w: 4096, h: 2048 };
+    const sc = screenCfg(), aspect = eyeAspect(it), w = 2048, h = Math.max(64, Math.round(w / aspect));
+    return { flat: true, w, h, dist: sc.dist, width: sc.width, aspect };
+  }
+  // Called every frame: does nothing unless the markers, the picture or the screen have changed
+  function refreshMarkers() {
+    const it = itemNow();
+    markerList = it ? markerData.items[it.id] || [] : [];
+    const o = it ? markerOpts(it) : null;
+    const sig = it && markerList.length ? JSON.stringify([it.id, markerList, o, markerData.show, markersVisible(), !!layerSession]) : '';
+    if (sig === markerSig) return;
+    markerSig = sig;
+    if (!sig) { if (markerMesh) markerMesh.visible = false; dropMarkerLayer(); applyLayers(); return; }
+    if (!markerCanvas || markerCanvas.width !== o.w || markerCanvas.height !== o.h) {
+      markerCanvas = document.createElement('canvas'); markerCanvas.width = o.w; markerCanvas.height = o.h;
+      if (markerTex) markerTex.dispose(); markerTex = null;
+    }
+    FC.drawMarkerOverlay(markerCanvas, markerList, o);
+    // the WebGL picture: a see-through sphere just inside the video's, or a sheet just in front of the screen
+    const kind = o.flat ? 'flat' : 'sphere';
+    if (!markerTex) { markerTex = new THREE.CanvasTexture(markerCanvas); markerTex.encoding = THREE.sRGBEncoding; if (markerMesh) markerMesh.material.map = markerTex; }
+    markerTex.needsUpdate = true;
+    if (!markerMesh || markerKind !== kind) {
+      if (markerMesh) { content.remove(markerMesh); markerMesh.geometry.dispose(); markerMesh.material.dispose(); }
+      let g;
+      if (o.flat) g = new THREE.PlaneGeometry(1, 1);
+      else { g = new THREE.SphereGeometry(45, 96, 48); g.scale(-1, 1, 1); g.rotateY(-Math.PI / 2); }
+      markerMesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ map: markerTex, transparent: true, depthTest: false, depthWrite: false, side: THREE.DoubleSide }));
+      markerMesh.renderOrder = 900; content.add(markerMesh); markerKind = kind;
+    }
+    if (o.flat) { markerMesh.position.set(0, 0, -(o.dist - 0.03)); markerMesh.scale.set(o.width, o.width / o.aspect, 1); }
+    else { markerMesh.position.set(0, 0, 0); markerMesh.scale.set(1, 1, 1); }
+    markerMesh.visible = markersVisible();
+    // in VR with compositor layers: a fresh static layer, drawn once
+    dropMarkerLayer();
+    if (layerSession && glBinding && markersVisible()) {
+      try {
+        markerLayer = o.flat
+          ? glBinding.createQuadLayer({ space: mediaSpace, layout: 'mono', viewPixelWidth: o.w, viewPixelHeight: o.h, isStatic: true, width: o.width, height: o.width / o.aspect })
+          : glBinding.createEquirectLayer({ space: mediaSpace, layout: 'mono', viewPixelWidth: o.w, viewPixelHeight: o.h, isStatic: true,
+              centralHorizontalAngle: Math.PI * 2, upperVerticalAngle: Math.PI / 2, lowerVerticalAngle: -Math.PI / 2 });
+        markerLayerDirty = true; markerGen++;
+        updateMediaTransform();
+      } catch (e) { markerLayer = null; }
+    }
+    applyLayers();
+  }
+  function dropMarkerLayer() {
+    if (markerLayer) { try { markerLayer.destroy(); } catch {} markerLayer = null; markerGen++; }
+  }
+  // copy the overlay into its layer (it is premultiplied for the compositor)
+  function drawMarkerLayer(frame) {
+    const gl = renderer.getContext();
+    if (typeof WebGL2RenderingContext === 'undefined' || !(gl instanceof WebGL2RenderingContext)) return;
+    const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true); gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, markerCanvas);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false); gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    const read = gl.createFramebuffer(), draw = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, read); gl.framebufferTexture2D(gl.READ_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+    const sub = glBinding.getSubImage(markerLayer, frame), v = sub.viewport;
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, draw); gl.framebufferTexture2D(gl.DRAW_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, sub.colorTexture, 0);
+    gl.blitFramebuffer(0, 0, markerCanvas.width, markerCanvas.height, v.x, v.y, v.x + v.width, v.y + v.height, gl.COLOR_BUFFER_BIT, gl.LINEAR);
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null); gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
+    gl.deleteTexture(t); gl.deleteFramebuffer(read); gl.deleteFramebuffer(draw);
+    if (renderer.resetState) renderer.resetState();
+    markerLayerDirty = false;
+  }
+
   // ------------------------------------------------------------ media layer (headset compositor draws the picture)
   // The compositor shows exactly one layer: the video, a still image, or a "waiting" panel.
   // A new layer is only made once its content is ready, and a failed attempt is retried,
@@ -438,9 +520,13 @@
   const yawQuat = a => ({ x: 0, y: Math.sin(a / 2), z: 0, w: Math.cos(a / 2) });
   const WAIT_W = 2, WAIT_H = 0.5, WAIT_DIST = 3;
   function updateMediaTransform() {
-    if (!mediaLayer) return;
     const a = -yawOffset, it = itemNow();
     const ahead = d => ({ x: Math.sin(yawOffset) * d, y: 0, z: -Math.cos(yawOffset) * d });
+    if (markerLayer && it) {      // the markers turn with the picture
+      if (it.shape === 'flat') { const sc = screenCfg(); markerLayer.transform = new XRRigidTransform(ahead(sc.dist - 0.03), yawQuat(a)); }
+      else markerLayer.transform = new XRRigidTransform({ x: 0, y: 0, z: 0 }, yawQuat(a));
+    }
+    if (!mediaLayer) return;
     if (layerKind === 'wait') {
       mediaLayer.transform = new XRRigidTransform(ahead(WAIT_DIST), yawQuat(a));
     } else if (it && it.shape === 'flat') {
@@ -470,8 +556,10 @@
       } catch (e) { d.layer = null; }
     }
     const list = mediaLayer ? [mediaLayer] : [];
+    const withMarkers = markerLayer && mediaLayer && layerKind !== 'wait' && markersVisible();
+    if (withMarkers) list.push(markerLayer);
     if (want) for (let i = dots.length - 1; i >= 0; i--) if (dots[i].layer) list.push(dots[i].layer);
-    const sig = list.length + (want ? 'p' : '') + (layerKind || '');
+    const sig = list.length + (want ? 'p' : '') + (layerKind || '') + (withMarkers ? 'm' + markerGen : '');
     if (sig === layersShown && list[0] === mediaLayer) return;
     layersShown = sig;
     layerSession.updateRenderState({ layers: list });
@@ -757,6 +845,7 @@
       if (d.gl) { try { gl.deleteTexture(d.gl.tex); gl.deleteFramebuffer(d.gl.read); gl.deleteFramebuffer(d.gl.draw); } catch {} }
       d.layer = d.gl = null;
     }
+    dropMarkerLayer(); markerSig = '';
     session = layerSession = mediaLayer = mediaBinding = mediaSpace = glBinding = layerKind = null; mediaSig = ''; layersShown = ''; looking = false;
     clearTimeout(retryTimer);
     updateUI(); sendStatus();
@@ -772,7 +861,7 @@
       if (gl.makeXRCompatible) await gl.makeXRCompatible();
       glBinding = new XRWebGLBinding(s, gl);
     } catch (e) { glBinding = null; }
-    mediaSig = ''; updateMediaLayer();
+    mediaSig = ''; markerSig = ''; updateMediaLayer();
     s.addEventListener('end', onSessionEnd);
     s.addEventListener('squeezestart', () => recenter(0));   // grip recentres for this wearer
     const onFrame = (time, frame) => {
@@ -782,6 +871,8 @@
       if (mediaLayer && layerKind !== 'video' && (staticDirty || mediaLayer.needsRedraw)) {
         try { drawStaticLayer(frame); } catch (e) { staticDirty = false; setHint('Couldn\'t draw the picture: ' + e.message, true); }
       }
+      refreshMarkers();
+      if (markerLayer && markersVisible() && (markerLayerDirty || markerLayer.needsRedraw)) { try { drawMarkerLayer(frame); } catch (e) { markerLayerDirty = false; } }
       applyLayers(); updatePointerLayer(frame);
       syncTick(); telemetry();
       s.requestAnimationFrame(onFrame);
@@ -802,7 +893,7 @@
     if (!renderer.xr.isPresenting || layerSession) return;
     renderer.xr.getCamera(camera).getWorldQuaternion(headQ);
     setLookFromQuat(headQ);
-    syncTick(); telemetry(); updatePointerSprite();
+    syncTick(); telemetry(); updatePointerSprite(); refreshMarkers();
     renderer.render(scene, camera);
   });
 
