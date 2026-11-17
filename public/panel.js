@@ -1140,17 +1140,67 @@
   $('wallPlay').addEventListener('click', () => $('playBtn').click());
   $('wallRecenter').addEventListener('click', recentreAll);
 
+  // ---- which headsets, and how many at once: All fits everyone; 1, 4, 9 and 16 are fixed grids with pages
+  const wallPref = { layout: 'all', hidden: [], page: 0 };
+  try { Object.assign(wallPref, JSON.parse(localStorage.getItem('fcd.wall') || '{}')); } catch {}
+  const saveWall = () => { try { localStorage.setItem('fcd.wall', JSON.stringify({ layout: wallPref.layout, hidden: wallPref.hidden })); } catch {} };
+  function setLayout(n) {
+    wallPref.layout = n; wallPref.page = 0; saveWall();
+    document.querySelectorAll('#wallLayout button').forEach(b => b.setAttribute('aria-pressed', b.dataset.n === String(n) ? 'true' : 'false'));
+  }
+  document.querySelectorAll('#wallLayout button').forEach(b => b.addEventListener('click', () => setLayout(b.dataset.n === 'all' ? 'all' : +b.dataset.n)));
+  setLayout(wallPref.layout);
+  $('wallPgPrev').addEventListener('click', () => { wallPref.page--; });
+  $('wallPgNext').addEventListener('click', () => { wallPref.page++; });
+  function renderPick() {
+    const list = $('wallPickList'); list.textContent = '';
+    headsets.slice().sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })).forEach(h => {
+      const l = document.createElement('label'), c = document.createElement('input');
+      c.type = 'checkbox'; c.checked = !wallPref.hidden.includes(h.id);
+      c.addEventListener('change', () => {
+        wallPref.hidden = wallPref.hidden.filter(id => id !== h.id); if (!c.checked) wallPref.hidden.push(h.id);
+        wallPref.page = 0; saveWall();
+      });
+      const i = document.createElement('i'); i.style.background = h.color;
+      const n = document.createElement('span'); n.textContent = h.name;
+      l.append(c, i, n);
+      if (!h.online) { const o = document.createElement('span'); o.className = 'off'; o.textContent = 'offline'; l.append(o); }
+      list.append(l);
+    });
+  }
+  $('wallPickBtn').addEventListener('click', e => {
+    e.stopPropagation(); const open = $('wallPick').hidden;
+    $('wallPick').hidden = !open; $('wallPickBtn').setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) renderPick();
+  });
+  $('wallPick').addEventListener('click', e => e.stopPropagation());
+  document.addEventListener('click', () => { $('wallPick').hidden = true; $('wallPickBtn').setAttribute('aria-expanded', 'false'); });
+  $('wallPickAll').addEventListener('click', () => { wallPref.hidden = []; wallPref.page = 0; saveWall(); renderPick(); });
+  $('wallPickNone').addEventListener('click', () => { wallPref.hidden = headsets.map(h => h.id); wallPref.page = 0; saveWall(); renderPick(); });
+
   function drawWall() {
     const it = curItem();
-    const on = headsets.filter(h => h.online).sort((a, b) => a.name.localeCompare(b.name));
-    $('wallCount').textContent = on.length + (on.length === 1 ? ' headset' : ' headsets') + ' connected';
+    const online = headsets.filter(h => h.online).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    const chosen = online.filter(h => !wallPref.hidden.includes(h.id));
+    const per = wallPref.layout === 'all' ? Math.max(1, chosen.length) : wallPref.layout;
+    const pages = Math.max(1, Math.ceil(chosen.length / per));
+    wallPref.page = Math.max(0, Math.min(pages - 1, wallPref.page));
+    const on = chosen.slice(wallPref.page * per, wallPref.page * per + per);
+    $('wallPager').hidden = pages < 2;
+    $('wallPgPos').textContent = 'Page ' + (wallPref.page + 1) + ' of ' + pages;
+    $('wallPgPrev').disabled = wallPref.page === 0; $('wallPgNext').disabled = wallPref.page >= pages - 1;
+    $('wallCount').textContent = online.length + (online.length === 1 ? ' headset' : ' headsets') + ' connected'
+      + (chosen.length < online.length ? ', ' + chosen.length + ' chosen' : '');
     $('wallEmpty').hidden = on.length > 0;
+    $('wallEmpty').textContent = online.length ? 'No headsets chosen. Use Choose headsets to pick some.' : 'No headsets are connected.';
     const box = $('wallGrid'), rect = box.getBoundingClientRect(), dpr = Math.min(window.devicePixelRatio || 1, 2);
     const W = Math.round(rect.width * dpr), H = Math.round(rect.height * dpr);
     if (eyesCanvas.width !== W || eyesCanvas.height !== H) er.setSize(W, H, false);
-    // pick the column count that makes the 16:10 tiles largest
+    // a fixed grid (2 × 2, 3 × 3, …), or for All the column count that makes the 16:10 tiles largest
     const n = Math.max(1, on.length), gap = 12; let best = null;
-    for (let cols = 1; cols <= n; cols++) {
+    const fixed = wallPref.layout === 'all' ? 0 : Math.round(Math.sqrt(wallPref.layout));
+    if (fixed) { const tw = Math.min((rect.width - gap * (fixed - 1)) / fixed, (rect.height - gap * (fixed - 1)) / fixed * 16 / 10); best = { cols: fixed, rows: fixed, tw }; }
+    else for (let cols = 1; cols <= n; cols++) {
       const rows = Math.ceil(n / cols);
       const tw = Math.min((rect.width - gap * (cols - 1)) / cols, (rect.height - gap * (rows - 1)) / rows * 16 / 10);
       if (!best || tw > best.tw) best = { cols, rows, tw };

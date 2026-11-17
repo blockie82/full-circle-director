@@ -66,7 +66,23 @@ h2 { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-t
 .targetbar .what { margin-right: auto; font-weight: 600; }
 
 /* all headsets wall */
-.wall { position: fixed; inset: 0; z-index: 30; background: var(--void); display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.wall { position: fixed; inset: 0; z-index: 30; background: var(--void); display: grid; grid-template-rows: auto auto minmax(0, 1fr); }
+.wallopts { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; padding: 10px max(16px, env(safe-area-inset-right, 0px)) 0 max(16px, env(safe-area-inset-left, 0px)); }
+.wallopts .lab { font-size: 13px; color: var(--dim); }
+.seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 999px; padding: 3px; gap: 2px; }
+.seg button { border: 0; background: transparent; color: var(--dim); padding: 5px 14px; border-radius: 999px; font-size: 13px; min-width: 40px; }
+.seg button[aria-pressed="true"] { background: linear-gradient(90deg, #5390d9, #80ffdb); color: var(--void); }
+.pager { display: inline-flex; gap: 8px; align-items: center; font-size: 13px; color: var(--dim); }
+.pager button { padding: 3px 12px; font-size: 16px; line-height: 1.2; }
+.pickwrap { position: relative; }
+.pickwrap > button { padding: 5px 14px; font-size: 13px; }
+.pick { position: absolute; left: 0; top: calc(100% + 6px); z-index: 5; min-width: 240px; max-height: 60vh; overflow: auto; background: var(--card, #120d29); border: 1px solid var(--rule); border-radius: 12px; padding: 10px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
+.pickhead { display: flex; gap: 8px; margin-bottom: 8px; }
+.pickhead button { padding: 3px 12px; font-size: 13px; }
+.picklist label { display: flex; gap: 9px; align-items: center; padding: 6px 4px; font-size: 14px; cursor: pointer; border-radius: 6px; }
+.picklist label:hover { background: rgba(255,255,255,0.04); }
+.picklist i { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.picklist .off { color: var(--dim); font-size: 12px; margin-left: auto; }
 .wallbar { position: relative; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; border-bottom: 1px solid var(--rule); padding-block: calc(12px + env(safe-area-inset-top, 0px)) 12px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
 .wallbar::after { content: ""; position: absolute; inset: auto 0 -1px 0; height: 2px; background: var(--spectrum); opacity: 0.7; }
 .wallbar .grow { margin-left: auto; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
@@ -369,6 +385,28 @@ body.big-open { overflow: hidden; }
       <button type="button" class="quiet" id="wallRecenter">Recentre everyone</button>
       <button type="button" class="quiet" id="wallClose">Close</button>
     </div>
+  </div>
+  <div class="wallopts">
+    <span class="lab">Layout</span>
+    <span class="seg" id="wallLayout" role="group" aria-label="How many headsets to show at once">
+      <button type="button" data-n="all" aria-pressed="true">All</button>
+      <button type="button" data-n="1" aria-pressed="false">1</button>
+      <button type="button" data-n="4" aria-pressed="false">4</button>
+      <button type="button" data-n="9" aria-pressed="false">9</button>
+      <button type="button" data-n="16" aria-pressed="false">16</button>
+    </span>
+    <span class="pager" id="wallPager" hidden>
+      <button type="button" class="quiet" id="wallPgPrev" aria-label="Previous page">‹</button>
+      <span class="num" id="wallPgPos">Page 1 of 1</span>
+      <button type="button" class="quiet" id="wallPgNext" aria-label="Next page">›</button>
+    </span>
+    <span class="pickwrap">
+      <button type="button" class="quiet" id="wallPickBtn" aria-expanded="false">Choose headsets</button>
+      <div class="pick" id="wallPick" hidden>
+        <div class="pickhead"><button type="button" class="quiet" id="wallPickAll">Select all</button><button type="button" class="quiet" id="wallPickNone">Clear</button></div>
+        <div class="picklist" id="wallPickList"></div>
+      </div>
+    </span>
   </div>
   <div class="wallgrid" id="wallGrid"><div class="wallempty" id="wallEmpty" hidden>No headsets are connected.</div></div>
 </section>
