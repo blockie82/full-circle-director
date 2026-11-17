@@ -75,6 +75,8 @@
     onConnection(ok) {
       $('conn').textContent = ok ? 'Connected' : 'Reconnecting…';
       $('conn').className = 'chip ' + (ok ? 'ok' : 'warn');
+      if (ok && linkHint) { linkHint = false; setHint(''); }
+      if (typeof refreshWait === 'function') refreshWait();
     },
     onMessage(m) {
       switch (m.t) {
@@ -284,15 +286,30 @@
   const waitPanel = new THREE.Mesh(new THREE.PlaneGeometry(2, 0.5), new THREE.MeshBasicMaterial({ map: wtex, transparent: true }));
   waitPanel.position.set(0, 0, -3); scene.add(waitPanel);
   let waitText = '';
-  function drawWait(text) {
-    if (text === waitText) return;
-    waitText = text;
+  function drawWait(text, sub = '') {
+    if (text + '|' + sub === waitText) return;
+    waitText = text + '|' + sub;
     const x = wc.getContext('2d'); x.clearRect(0, 0, 1024, 256);
     const g = x.createLinearGradient(0, 0, 1024, 0); g.addColorStop(0, '#7400b8'); g.addColorStop(0.5, '#5390d9'); g.addColorStop(1, '#80ffdb');
-    x.fillStyle = 'rgba(18,13,41,0.92)'; x.fillRect(0, 0, 1024, 256); x.fillStyle = g; x.fillRect(0, 0, 1024, 8);
-    x.fillStyle = '#eef0ff'; x.font = '700 56px Manrope, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
-    x.fillText(text, 512, 132); wtex.needsUpdate = true;
+    x.fillStyle = 'rgba(18,13,41,0.92)'; x.fillRect(0, 0, 1024, 256); x.fillStyle = sub && /reach/.test(text) ? '#ffc46b' : g; x.fillRect(0, 0, 1024, 8);
+    x.fillStyle = '#eef0ff'; x.font = '700 ' + (sub ? 50 : 56) + 'px Manrope, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.fillText(text, 512, sub ? 105 : 132);
+    if (sub) { x.fillStyle = '#a9a5d2'; x.font = '600 30px Manrope, sans-serif'; x.fillText(sub, 512, 178); }
+    wtex.needsUpdate = true;
   }
+  // The waiting screen says whether this headset can reach the PC at all, so a lost link is never
+  // mistaken for "nothing loaded yet".
+  let linkHint = false;
+  function refreshWait() {
+    const down = !link.connected && performance.now() - (link.downSince || 0) > 2500;
+    if (down) {
+      drawWait('Can\'t reach the Director', 'Trying ' + location.host + '. Check this headset\'s Wi-Fi.');
+      if (!linkHint && !session) { linkHint = true; setHint('Can\'t reach Full Circle Director at ' + location.host + '. Check this headset is on the same Wi-Fi as the PC and that the Director is open. It keeps trying by itself.', true); }
+    } else if (link.state && link.state.videoId) drawWait(current.kind ? 'Loading…' : 'Not on this headset yet', current.kind ? '' : 'Ask the operator to send it to this headset');
+    else drawWait('Waiting for the operator', link.connected ? 'Connected to the Director' : '');
+    if (typeof updateMediaLayer === 'function') updateMediaLayer();
+  }
+  setInterval(refreshWait, 1000);
 
   const itemNow = () => (current.kind ? libItem(current.id) : null);
   function eyeAspect(it) {
@@ -331,7 +348,7 @@
       });
     }
     waitPanel.visible = !it;
-    drawWait(link.state && link.state.videoId ? (loaded ? 'Loading…' : 'Not on this headset yet') : 'Waiting for the operator');
+    refreshWait();
     applyScreen();
     updateMediaLayer();
   }

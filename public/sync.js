@@ -5,20 +5,27 @@
   class FCLink {
     constructor(opts) {
       this.opts = opts;
-      this.offset = 0; this.rtt = null; this.synced = false; this.samples = [];
+      this.offset = 0; this.rtt = null; this.synced = false; this.samples = []; this.lastHeard = 0; this.downSince = performance.now();
       this.state = null; this.connected = false; this.ws = null;
       this.open();
     }
     open() {
       const ws = this.ws = new WebSocket((location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws');
       ws.onopen = () => {
-        this.connected = true; this.samples = [];
+        this.connected = true; this.samples = []; this.lastHeard = performance.now();
         this.send(this.opts.hello());
         let n = 0; const quick = () => { this.ping(); if (++n < 8 && this.ws === ws) setTimeout(quick, 120); }; quick();
-        clearInterval(this.pingTimer); this.pingTimer = setInterval(() => this.ping(), 2000);
+        // Watchdog: a link can die without closing (Wi-Fi power saving, a busy router). If the server
+        // hasn't answered for 6 seconds, drop this connection and make a fresh one straight away.
+        clearInterval(this.pingTimer); this.pingTimer = setInterval(() => {
+          if (this.ws !== ws) return;
+          if (performance.now() - this.lastHeard > 6000) return this.restart('no answer from the server');
+          this.ping();
+        }, 2000);
         this.opts.onConnection && this.opts.onConnection(true);
       };
       ws.onmessage = e => {
+        this.lastHeard = performance.now();
         let m; try { m = JSON.parse(e.data); } catch { return; }
         if (m.t === 'pong') return this.pong(m);
         if (m.t === 'state') {
@@ -30,11 +37,22 @@
       ws.onclose = e => {
         clearInterval(this.pingTimer);
         if (this.ws !== ws) return;
+        if (this.connected) this.downSince = performance.now();
         this.connected = false;
         this.opts.onConnection && this.opts.onConnection(false, e);
         setTimeout(() => { if (this.ws === ws) this.open(); }, 1500);
       };
+      // a connection attempt that hangs (no answer at all) is abandoned after 8 seconds
+      setTimeout(() => { if (this.ws === ws && ws.readyState === 0) { try { ws.close(); } catch {} if (this.ws === ws) { this.ws = null; this.open(); } } }, 8000);
       ws.onerror = () => {};
+    }
+    restart(why) {
+      const old = this.ws; this.ws = null; clearInterval(this.pingTimer);
+      if (this.connected) this.downSince = performance.now();
+      this.connected = false;
+      try { old && old.close(); } catch {}
+      this.opts.onConnection && this.opts.onConnection(false, { reason: why });
+      this.open();
     }
     send(m) { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(m)); }
     ping() { this.send({ t: 'ping', c: performance.now() }); }
