@@ -35,6 +35,7 @@
     <desktop2:Extension Category="windows.firewallRules">
       <desktop2:FirewallRules Executable="Full Circle Director.exe">
         <desktop2:Rule Direction="in" IPProtocol="TCP" Profile="domainAndPrivate" LocalPortMin="8443" LocalPortMax="8443" />
+        <desktop2:Rule Direction="in" IPProtocol="UDP" Profile="domainAndPrivate" LocalPortMin="8443" LocalPortMax="8443" />
       </desktop2:FirewallRules>
     </desktop2:Extension>
   </Extensions>

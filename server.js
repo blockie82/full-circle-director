@@ -666,6 +666,21 @@ panelServer.listen(cfg.panelPort, '127.0.0.1', () => {
   });
 });
 
+// ---------------------------------------------------------------- discovery for the Quest launcher app
+// The Full Circle Launcher app on a headset broadcasts "FCD-DISCOVER" on UDP (same port number as the
+// headset server). We answer straight back, so the app can open the player without anyone typing an address.
+const DISCOVERY_PORT = cfg.discoveryPort || cfg.headsetPort;
+try {
+  const disco = require('dgram').createSocket({ type: 'udp4', reuseAddr: true });
+  disco.on('message', (msg, from) => {
+    if (!String(msg).startsWith('FCD-DISCOVER')) return;
+    const reply = JSON.stringify({ app: 'Full Circle Director', version: VERSION, name: os.hostname(), port: cfg.headsetPort, ips: lanIPs() });
+    disco.send(reply, from.port, from.address, () => {});
+  });
+  disco.on('error', e => console.error('  Headset discovery is off (' + e.code + '); headsets can still join by address.'));
+  disco.bind(DISCOVERY_PORT, '0.0.0.0');
+} catch (e) { console.error('  Headset discovery is off:', e.message); }
+
 // When run by the Windows app, stop cleanly (and stop any preview copy in progress) as soon as the app closes
 function shutdown() {
   if (proxyProc) { try { proxyProc.kill(); } catch {} }

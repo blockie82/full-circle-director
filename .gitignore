@@ -22,3 +22,10 @@ desktop.ini
 # Windows app build output
 dist/
 .build-cache/
+
+# Android build output
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+*.keystore

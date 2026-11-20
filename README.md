@@ -39,6 +39,18 @@ Building:
 3. Create a submission and upload the `.msix`. The package uses the `runFullTrust` capability, which the Store asks you to explain; for example: *"A desktop app that runs a local web server so VR headsets on the same network can play synced video."*
 4. Fill in the listing (description, screenshots, age rating, a privacy policy link) and submit for certification.
 
+## Quest app (optional)
+
+**Full Circle Player** is a small app for the headsets. Open it and it finds the Director on the Wi-Fi by itself and opens the player in the Quest Browser, so nobody has to type an address. The player itself is unchanged.
+
+- Download `FullCircleQuestPlayer-x.y.z.apk` from this repository's Releases (look for **Quest app**).
+- Install it on each headset with Meta Quest Developer Hub or SideQuest (the headset needs Developer Mode on).
+- On the headset it's under **Library → Unknown sources**.
+- It needs Full Circle Director 2.4.1 or later on the PC. With an older Director, type the address into the app instead.
+- If the router blocks broadcasts (some guest or "client isolation" networks do), type the address once. The app remembers it and asks that PC directly next time.
+
+The app's source is in `android/`. GitHub builds it automatically whenever that folder changes.
+
 ## Running it from source
 
 1. Install [Node.js](https://nodejs.org) (LTS).

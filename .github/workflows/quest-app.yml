@@ -1,0 +1,58 @@
+name: Quest app (APK)
+
+on:
+  push:
+    branches: [main]
+    paths: ['android/**', '.github/workflows/quest-app.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: '8.9' }
+
+      - name: Signing key (if set up)
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/launcher.keystore"
+            echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/launcher.keystore" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          set -o pipefail
+          gradle -p android assembleRelease --no-daemon 2>&1 | tee build.log || {
+            grep -E "error:|e: |FAILURE|What went wrong" -A3 build.log | head -40 | while IFS= read -r l; do echo "::error::$l"; done
+            exit 1
+          }
+
+      - name: Publish APK as a release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V=$(grep versionName android/app/build.gradle | sed -E "s/.*'(.*)'.*/\1/")
+          APK="FullCircleQuestPlayer-$V.apk"
+          cp android/app/build/outputs/apk/release/app-release.apk "$APK"
+          TAG="quest-app-v$V"
+          NOTES="Full Circle Player launcher for Meta Quest, version $V. Install it on the headset with Meta Quest Developer Hub or SideQuest. Built from ${GITHUB_SHA::7}."
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK" --clobber
+            gh release edit "$TAG" --notes "$NOTES"
+          else
+            gh release create "$TAG" "$APK" --title "Quest app $V" --notes "$NOTES"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with: { name: quest-apk, path: 'FullCircleQuestPlayer-*.apk' }

@@ -1,0 +1,37 @@
+plugins { id 'com.android.application' }
+
+// Signing: GitHub uses the repository secrets ANDROID_KEYSTORE_B64 / ANDROID_KEYSTORE_PASSWORD when they exist,
+// so every build can update the last one in place. Without them the build is signed with a throwaway debug key.
+def ks = System.getenv('ANDROID_KEYSTORE_FILE')
+
+android {
+    namespace 'com.fullcircleimmersive.launcher'
+    compileSdk 34
+    defaultConfig {
+        applicationId 'com.fullcircleimmersive.launcher'
+        minSdk 29
+        targetSdk 32
+        versionCode 1
+        versionName '1.0.0'
+    }
+    signingConfigs {
+        if (ks) {
+            release {
+                storeFile file(ks)
+                storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
+                keyAlias 'launcher'
+                keyPassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig ks ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
