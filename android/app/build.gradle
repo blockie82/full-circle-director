@@ -30,6 +30,12 @@ android {
             signingConfig ks ? signingConfigs.release : signingConfigs.debug
         }
     }
+    // targetSdk 32 is what Meta recommends for Quest; Google Play's lint rule about it doesn't apply here
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+        disable 'ExpiredTargetSdkVersion'
+    }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
