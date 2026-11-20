@@ -23,6 +23,8 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.text.TextUtils;
 import android.widget.TextView;
 
 import org.json.JSONObject;
@@ -80,8 +82,7 @@ public class MainActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(Gravity.CENTER_HORIZONTAL);
-        root.setBackgroundColor(BG);
-        root.setPadding(dp(40), dp(32), dp(40), dp(32));
+        root.setPadding(dp(32), dp(28), dp(32), dp(28));
 
         ImageView logo = new ImageView(this);
         logo.setImageResource(R.drawable.logo);
@@ -101,7 +102,7 @@ public class MainActivity extends Activity {
 
         list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
-        root.addView(list, new LinearLayout.LayoutParams(dp(460), LinearLayout.LayoutParams.WRAP_CONTENT));
+        root.addView(list, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
         searchBtn = button("Search again", false);
         searchBtn.setOnClickListener(v -> startSearch());
@@ -132,20 +133,45 @@ public class MainActivity extends Activity {
             if (id == EditorInfo.IME_ACTION_GO || (e != null && e.getKeyCode() == KeyEvent.KEYCODE_ENTER)) { openTyped(); return true; }
             return false;
         });
-        row.addView(address, new LinearLayout.LayoutParams(dp(300), LinearLayout.LayoutParams.WRAP_CONTENT));
+        row.addView(address, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         Button go = button("Open", true);
         go.setOnClickListener(v -> openTyped());
         LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         gp.leftMargin = dp(10);
         row.addView(go, gp);
-        root.addView(row);
+        root.addView(row, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
         TextView hint = text("The headset and the Director's PC must be on the same Wi-Fi.", 13, MUTED);
         hint.setPadding(0, dp(24), 0, 0);
         hint.setGravity(Gravity.CENTER);
         root.addView(hint);
 
-        setContentView(root);
+        // centre a column of at most 680dp, so it fits a narrow panel and doesn't sprawl on a wide one
+        LinearLayout outer = new LinearLayout(this);
+        outer.setGravity(Gravity.CENTER_HORIZONTAL);
+        outer.setBackgroundColor(BG);
+        column = root;
+        outer.addView(root, new LinearLayout.LayoutParams(columnWidth(), LinearLayout.LayoutParams.WRAP_CONTENT));
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.setBackgroundColor(BG);
+        scroll.addView(outer);
+        setContentView(scroll);
+    }
+
+    LinearLayout column;
+
+    int columnWidth() {
+        int w = getResources().getDisplayMetrics().widthPixels;
+        return Math.min(w, dp(680));
+    }
+
+    @Override public void onConfigurationChanged(android.content.res.Configuration c) {
+        super.onConfigurationChanged(c);
+        if (column != null) {
+            column.getLayoutParams().width = columnWidth();
+            column.requestLayout();
+        }
     }
 
     @Override protected void onResume() {
@@ -329,13 +355,17 @@ public class MainActivity extends Activity {
             TextView n = text(d.name, 17, TEXT);
             n.setGravity(Gravity.START);
             n.setTypeface(Typeface.DEFAULT_BOLD);
+            n.setSingleLine(true); n.setEllipsize(TextUtils.TruncateAt.END);
             TextView a = text(d.ip + (d.version.isEmpty() ? "" : "  ·  Director " + d.version), 13, MUTED);
             a.setGravity(Gravity.START);
+            a.setSingleLine(true); a.setEllipsize(TextUtils.TruncateAt.END);
             txt.addView(n); txt.addView(a);
             card.addView(txt, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
             Button b = button("Open player", true);
             b.setOnClickListener(v -> open(d));
-            card.addView(b);
+            LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            bp.leftMargin = dp(12);
+            card.addView(b, bp);
             card.setOnClickListener(v -> open(d));
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             lp.bottomMargin = dp(8);
